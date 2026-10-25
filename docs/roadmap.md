@@ -58,7 +58,7 @@ configured deadline, automatic recovery after a path outage. **Met.**
 - [x] Windows: Wintun adapter, address and route configuration, DNS
 - [x] Windows: physical-path socket binding and one relay bypass route per adapter
 - [x] Windows: clean shutdown and route rollback
-- [x] Client preflight (`doctor`) and a two-adapter launch guide
+- [x] Client preflight (`doctor`) plus a no-infrastructure self-test and a two-adapter launch guide
 - [x] Linux client: TUN, `SO_BINDTODEVICE`, routes, DNS, rollback
 - [x] Client CLI: connect and live status; disconnect with Ctrl+C/SIGTERM
 - [x] Automatic reconnect after relay restart or total path loss, with backoff

@@ -197,6 +197,9 @@ routes and DNS when it exits. Useful flags:
 - `-stats 5s` changes the status interval; `-debug` enables debug logging.
 - `multispeed discover` lists interfaces that can be used as paths.
 - `multispeed doctor -config client.json` is a safe preflight check.
+- `multispeed doctor -self-test` proves the software works on this machine with
+  no relay, TUN device, or administrator rights: it starts a relay and client
+  inside one process over loopback and moves packets both ways.
 
 For a step-by-step walkthrough with two real adapters, see
 [docs/launch.md](docs/launch.md).

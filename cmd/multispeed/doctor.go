@@ -28,16 +28,30 @@ type preflightCheck struct {
 // doctor verifies the local prerequisites, authenticates to the relay using the
 // configured paths, and reports which paths actually carry traffic. It changes
 // no host routing or DNS state and does not create a TUN device.
+//
+// With -self-test it instead runs a relay and client inside this process over
+// loopback, which needs no relay host, TUN device, or administrator rights.
 func doctor(args []string) error {
 	fs := flag.NewFlagSet("doctor", flag.ExitOnError)
 	configPath := fs.String("config", "client.json", "path to the client configuration file")
 	wait := fs.Duration("wait", 3*time.Second, "how long to observe path health after connecting")
 	debug := fs.Bool("debug", false, "enable debug logging")
+	selfTest := fs.Bool("self-test", false, "run an in-process relay and client over loopback; needs no VPS, TUN device, or elevation")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *wait < 0 {
 		return errors.New("doctor: -wait must not be negative")
+	}
+
+	level := slog.LevelWarn
+	if *debug {
+		level = slog.LevelDebug
+	}
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+
+	if *selfTest {
+		return selfTestDoctor(*wait, log)
 	}
 
 	fmt.Println("MultiSpeed doctor")
@@ -80,11 +94,7 @@ func doctor(args []string) error {
 	}
 	report(preflightCheck{Name: "client config", OK: true, Detail: *configPath})
 
-	level := slog.LevelWarn
-	if *debug {
-		level = slog.LevelDebug
-	}
-	cfg.Logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+	cfg.Logger = log
 
 	specs := cfg.Paths
 	source := "configured"

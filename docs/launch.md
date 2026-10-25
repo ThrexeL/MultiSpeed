@@ -35,6 +35,37 @@ A cheap 100 Mbps VPS, a relay in WSL, or a relay on the same machine cannot
 exceed its own single uplink. For a convincing test, use a VPS advertised at
 1 Gbps or more, with at least 2 vCPUs (the relay does encryption in user space).
 
+## 0. See it work before you rent anything
+
+You do not need a relay to verify that MultiSpeed itself runs on this machine:
+
+```powershell
+.\multispeed-cli.exe doctor -self-test
+```
+
+It starts a relay and a client inside one process over loopback, connects them,
+waits for both paths to answer a probe, and sends a packet in each direction:
+
+```text
+MultiSpeed doctor - self-test
+
+  [info] administrator: no (not needed for this test)
+  [info] wintun.dll: not found next to the executable or in the current directory (not needed for this test)
+
+  [ok]   relay: 127.0.0.1:49997 (in-process, not a VPS)
+  [ok]   handshake: assigned tunnel 10.77.0.2/16, mtu 1400
+  [ok]   paths: loop-ethernet 0.0ms, loop-wifi 0.0ms
+  [ok]   client -> relay: 49-byte packet arrived byte-identical
+  [ok]   relay -> client: 51-byte packet arrived byte-identical
+  [ok]   shutdown: client and relay stopped cleanly
+```
+
+No TUN device, no `wintun.dll`, and no elevation are involved. What it proves:
+handshake, encryption, path probing, scheduling, the reorder buffer, and clean
+shutdown. What it does **not** prove: that your two internet connections can be
+bonded, because the self-test uses loopback paths (a socket bound to a LAN
+address cannot reach `127.0.0.1`). For that, continue with the relay below.
+
 ## 1. Prepare Windows
 
 Open **PowerShell as Administrator** (Start -> type `powershell` -> right-click

@@ -58,6 +58,7 @@ func usage() {
 Usage:
   multispeed run      -config client.json [-tun ms0] [-dry-run] [-no-routes] [-no-dns] [-stats 5s] [-debug]
   multispeed doctor   -config client.json [-wait 3s]
+  multispeed doctor   -self-test [-wait 3s]
   multispeed check    -config client.json
   multispeed discover
   multispeed keygen   [-name laptop]
@@ -72,6 +73,10 @@ without creating a TUN device.
 doctor checks the local prerequisites, authenticates to the relay over every
 configured path, and reports which paths carry traffic. It changes no host
 routing or DNS state, so it is safe to run before connecting.
+
+doctor -self-test needs no relay host, TUN device, or administrator rights: it
+starts a relay and client inside this process over loopback and moves packets
+both ways. Use it to verify that MultiSpeed itself works on this machine.
 `)
 }
 
