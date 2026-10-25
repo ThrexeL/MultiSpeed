@@ -66,6 +66,8 @@ type StatusView struct {
 	PrefixLen    int         `json:"prefix_len,omitempty"`
 	MTU          int         `json:"mtu,omitempty"`
 	ConnectedFor string      `json:"connected_for,omitempty"`
+	Reconnecting bool        `json:"reconnecting,omitempty"`
+	RetryAttempt int         `json:"retry_attempt,omitempty"`
 	Paths        []PathView  `json:"paths"`
 	Reorder      ReorderView `json:"reorder"`
 	DataSeq      uint64      `json:"data_seq"`
@@ -147,6 +149,11 @@ func (a *App) GetStatus() StatusView {
 		return view
 	}
 	status := session.client.Status()
+	if view.State == "connected" && status.Reconnecting {
+		view.State = "reconnecting"
+	}
+	view.Reconnecting = status.Reconnecting
+	view.RetryAttempt = status.ReconnectAttempt
 	view.Server = status.Server.String()
 	view.TunnelIP = status.Session.Address.String()
 	view.PrefixLen = int(status.Session.PrefixLen)

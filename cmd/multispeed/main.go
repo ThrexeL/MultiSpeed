@@ -177,6 +177,8 @@ func statusLoop(ctx context.Context, interval time.Duration, c *client.Client) {
 			state := "disconnected"
 			if s.Connected {
 				state = "connected"
+			} else if s.Reconnecting {
+				state = fmt.Sprintf("reconnecting (attempt %d)", s.ReconnectAttempt)
 			}
 			fmt.Printf("[%s] %s tunnel=%s reorder=%s data_seq=%d\n",
 				time.Now().Format("15:04:05"), state, s.Session.Address.String(),

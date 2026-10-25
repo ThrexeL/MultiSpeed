@@ -14,6 +14,7 @@ const stateLabels = {
   disconnected: 'Disconnected',
   connecting: 'Connecting…',
   connected: 'Connected',
+  reconnecting: 'Reconnecting…',
   disconnecting: 'Disconnecting…',
 };
 
@@ -40,7 +41,7 @@ function updateControls() {
   const state = lastStatus?.state ?? 'disconnected';
   const hasProfile = Boolean(lastStatus?.profile?.path);
   $('connect-btn').disabled = busy || state !== 'disconnected' || !hasProfile;
-  $('disconnect-btn').disabled = busy || state !== 'connected';
+  $('disconnect-btn').disabled = busy || (state !== 'connected' && state !== 'reconnecting');
   $('browse-btn').disabled = busy || state !== 'disconnected';
   $('reload-btn').disabled = busy || state !== 'disconnected' || !hasProfile;
 }
@@ -59,7 +60,7 @@ function renderProfile(profile) {
 }
 
 function renderSession(st) {
-  const connected = st.state === 'connected';
+  const connected = st.state === 'connected' || st.state === 'reconnecting';
   setText('tunnel-ip', connected ? st.tunnel_ip : '—');
   setText('session-mtu', connected && st.mtu ? String(st.mtu) : '—');
   setText('delivered', connected ? String(st.reorder?.delivered ?? 0) : '—');
@@ -103,7 +104,7 @@ function renderPaths(st) {
     const td = document.createElement('td');
     td.colSpan = 7;
     td.className = 'empty';
-    td.textContent = st.state === 'connected'
+    td.textContent = st.state === 'connected' || st.state === 'reconnecting'
       ? 'Waiting for the relay’s first path probes…'
       : 'Connect to see path telemetry.';
     row.appendChild(td);
@@ -135,7 +136,7 @@ function renderPaths(st) {
     }
   }
 
-  if (st.state === 'connected' && st.reorder) {
+  if ((st.state === 'connected' || st.state === 'reconnecting') && st.reorder) {
     const r = st.reorder;
     setText('reorder-line',
       `delivered ${r.delivered ?? 0} · duplicate ${r.duplicates ?? 0} · late ${r.late ?? 0} · ` +
@@ -149,7 +150,11 @@ function render(st) {
   lastStatus = st;
   const state = st.state ?? 'disconnected';
   const pill = $('state-pill');
-  pill.textContent = stateLabels[state] ?? state;
+  let label = stateLabels[state] ?? state;
+  if (state === 'reconnecting' && st.retry_attempt) {
+    label = `Reconnecting… (attempt ${st.retry_attempt})`;
+  }
+  pill.textContent = label;
   pill.className = `pill ${state}`;
 
   renderProfile(st.profile);

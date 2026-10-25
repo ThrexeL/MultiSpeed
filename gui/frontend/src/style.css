@@ -157,6 +157,7 @@ body {
 }
 
 .pill.connecting,
+.pill.reconnecting,
 .pill.disconnecting {
   color: var(--amber);
   border-color: rgba(255, 200, 87, 0.35);
@@ -164,6 +165,7 @@ body {
 }
 
 .pill.connecting::before,
+.pill.reconnecting::before,
 .pill.disconnecting::before {
   background: var(--amber);
   animation: pulse 1.1s ease-in-out infinite;

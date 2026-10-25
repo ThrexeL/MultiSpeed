@@ -96,6 +96,8 @@ export namespace main {
 	    prefix_len?: number;
 	    mtu?: number;
 	    connected_for?: string;
+	    reconnecting?: boolean;
+	    retry_attempt?: number;
 	    paths: PathView[];
 	    reorder: ReorderView;
 	    data_seq: number;
@@ -116,6 +118,8 @@ export namespace main {
 	        this.prefix_len = source["prefix_len"];
 	        this.mtu = source["mtu"];
 	        this.connected_for = source["connected_for"];
+	        this.reconnecting = source["reconnecting"];
+	        this.retry_attempt = source["retry_attempt"];
 	        this.paths = this.convertValues(source["paths"], PathView);
 	        this.reorder = this.convertValues(source["reorder"], ReorderView);
 	        this.data_seq = source["data_seq"];
