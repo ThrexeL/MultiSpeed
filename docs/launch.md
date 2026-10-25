@@ -34,6 +34,8 @@ on the relay:
 A cheap 100 Mbps VPS, a relay in WSL, or a relay on the same machine cannot
 exceed its own single uplink. For a convincing test, use a VPS advertised at
 1 Gbps or more, with at least 2 vCPUs (the relay does encryption in user space).
+Oracle Cloud's Always Free tier is enough and costs nothing; see
+[oracle-free-relay.md](oracle-free-relay.md) for that path.
 
 ## 0. See it work before you rent anything
 
@@ -349,6 +351,7 @@ multispeed-relay -f` on the relay.
 
 ## Next steps
 
+- [oracle-free-relay.md](oracle-free-relay.md) - a zero-cost relay on Oracle Always Free.
 - [deployment.md](deployment.md) - relay operations, firewall, and hardening.
 - [architecture.md](architecture.md) - how bonding and routing work.
 - [security.md](security.md) - threat model and known gaps.

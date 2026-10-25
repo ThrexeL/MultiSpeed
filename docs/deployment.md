@@ -23,7 +23,8 @@ interface, and uses kernel forwarding plus source NAT to reach the internet.
 
 A 1 vCPU / 512 MB VPS is enough for a small number of clients; CPU becomes the
 limit only at high packet rates. Choose a provider and plan based on bandwidth,
-not CPU.
+not CPU. For a no-cost host, [oracle-free-relay.md](oracle-free-relay.md) covers
+Oracle Cloud's Always Free tier, including the extra OCI firewall layer.
 
 ## 2. Build and install
 

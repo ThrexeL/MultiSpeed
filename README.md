@@ -164,6 +164,10 @@ For a persistent deployment, see [docs/deployment.md](docs/deployment.md) and
 the systemd unit in [deploy/multispeed-relay.service](deploy/multispeed-relay.service).
 Remember to allow UDP 7443 through the provider's firewall or security group.
 
+No server yet? [docs/oracle-free-relay.md](docs/oracle-free-relay.md) walks
+through running the relay on Oracle Cloud's Always Free tier, including the two
+OCI-specific firewall layers that otherwise silently drop UDP.
+
 ### 4. Run the client
 
 On Windows, place `wintun.dll` next to the client binaries (download it from
