@@ -33,6 +33,7 @@
       <div class="panel-heading">
         <h2>Profile</h2>
         <div class="actions">
+          <button id="setup-btn" class="btn subtle">Setup…</button>
           <button id="reload-btn" class="btn subtle" disabled>Reload</button>
           <button id="browse-btn" class="btn subtle">Choose…</button>
         </div>
@@ -59,6 +60,12 @@
       <div class="error-banner" id="error-banner" hidden>
         <span class="error-title">Connection error</span>
         <p id="error-text"></p>
+      </div>
+      <div class="notice-banner" id="admin-banner" hidden>
+        <span class="notice-title" id="notice-title">Administrator rights needed</span>
+        <p id="notice-text">Windows only lets an elevated app create the tunnel and change routes.</p>
+        <button id="admin-restart" class="btn subtle">Restart as administrator</button>
+        <button id="notice-install" class="btn subtle">Install wintun.dll</button>
       </div>
     </section>
 
@@ -101,6 +108,88 @@
     <span>Pre-alpha. IPv6 is not tunneled; disable it on physical adapters if that matters to you.</span>
     <span id="version"></span>
   </footer>
+
+  <div id="wizard" class="wizard" hidden>
+    <div class="wizard-card" role="dialog" aria-modal="true" aria-labelledby="wizard-title">
+      <header class="wizard-head">
+        <div>
+          <p class="wizard-eyebrow">Setup</p>
+          <h2 id="wizard-title">Get connected in three steps</h2>
+        </div>
+        <button id="wizard-close" class="btn subtle" hidden>Close</button>
+      </header>
+
+      <ol class="wizard-steps" aria-hidden="true">
+        <li class="wstep" data-step="1"><span>1</span> Relay</li>
+        <li class="wstep" data-step="2"><span>2</span> Adapters</li>
+        <li class="wstep" data-step="3"><span>3</span> Connect</li>
+      </ol>
+
+      <section class="wizard-panel" data-panel="1">
+        <h3>Paste your join code</h3>
+        <p class="lede">
+          Your relay prints one line that starts with <code>MS1.</code>. It contains
+          the relay address and a key for this computer, so treat it like a password.
+        </p>
+        <textarea id="join-code" class="join-input" rows="3" spellcheck="false"
+          autocomplete="off" placeholder="MS1.eyJ2IjoxLCJzZXJ2ZXIiOiIuLi4i…"></textarea>
+        <p class="hint" id="join-hint">Waiting for a join code.</p>
+        <div class="wizard-actions">
+          <button id="use-file-btn" class="btn ghost">Use a client.json</button>
+          <button id="join-next" class="btn primary" disabled>Continue</button>
+        </div>
+      </section>
+
+      <section class="wizard-panel" data-panel="2" hidden>
+        <h3>Choose what to bond</h3>
+        <p class="lede">
+          Checked adapters each open their own encrypted path. Traffic is spread
+          across them while preserving packet order.
+        </p>
+        <div id="adapter-list" class="adapter-list"></div>
+        <div class="adapter-tools">
+          <label class="checkline"><input type="checkbox" id="select-all" checked/> Select all</label>
+          <button id="rescan-btn" class="btn subtle">Rescan</button>
+        </div>
+        <p class="hint" id="adapter-hint">Ethernet, Wi-Fi, and USB tethering can all be used at once.</p>
+        <div class="wizard-actions">
+          <button id="adapter-back" class="btn ghost">Back</button>
+          <button id="adapter-next" class="btn primary">Continue</button>
+        </div>
+      </section>
+
+      <section class="wizard-panel" data-panel="3" hidden>
+        <h3>Ready to connect</h3>
+        <p class="lede" id="ready-summary"></p>
+        <ul class="checklist">
+          <li id="check-profile">
+            <span class="check-mark" aria-hidden="true"></span>
+            <span id="check-profile-text">Profile will be saved</span>
+          </li>
+          <li id="check-admin">
+            <span class="check-mark" aria-hidden="true"></span>
+            <span id="check-admin-text">Administrator rights</span>
+            <button id="elevate-btn" class="btn subtle" hidden>Restart elevated</button>
+          </li>
+          <li id="check-wintun">
+            <span class="check-mark" aria-hidden="true"></span>
+            <span id="check-wintun-text">wintun.dll</span>
+            <button id="wintun-btn" class="btn subtle" hidden>Install</button>
+            <button id="wintun-page-btn" class="btn subtle" hidden>Download page</button>
+          </li>
+        </ul>
+        <div class="wizard-error" id="wizard-error" hidden></div>
+        <p class="hint">
+          After connecting, the relay's address stays reachable through each adapter
+          while all other traffic is balanced inside the tunnel.
+        </p>
+        <div class="wizard-actions">
+          <button id="ready-back" class="btn ghost">Back</button>
+          <button id="finish-btn" class="btn primary">Connect</button>
+        </div>
+      </section>
+    </div>
+  </div>
 </div>
 <script type="module" src="/src/main.js"></script>
 </body>

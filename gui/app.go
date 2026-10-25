@@ -68,6 +68,8 @@ type StatusView struct {
 	ConnectedFor string      `json:"connected_for,omitempty"`
 	Reconnecting bool        `json:"reconnecting,omitempty"`
 	RetryAttempt int         `json:"retry_attempt,omitempty"`
+	Elevated     bool        `json:"elevated"`
+	TUNReady     bool        `json:"tun_ready"`
 	Paths        []PathView  `json:"paths"`
 	Reorder      ReorderView `json:"reorder"`
 	DataSeq      uint64      `json:"data_seq"`
@@ -141,6 +143,8 @@ func (a *App) GetStatus() StatusView {
 		Version:   appVersion,
 		Profile:   a.profile,
 		LastError: a.lastErr,
+		Elevated:  isElevated(),
+		TUNReady:  wintunStatus().Ready,
 	}
 	session := a.session
 	a.mu.Unlock()

@@ -74,6 +74,12 @@ func TestInferKindAndWeight(t *testing.T) {
 		"Starlink":        protocol.LinkStarlink,
 		"satellite0":      protocol.LinkSatellite,
 		"mystery-adapter": protocol.LinkUnknown,
+		"Ethernet 4 Remote NDIS Compatible Device":    protocol.LinkCellular,
+		"Ethernet 5 USB Ethernet/RNDIS Gadget":        protocol.LinkCellular,
+		"iPhone USB":                                  protocol.LinkCellular,
+		"Ethernet 6 Android Internet Sharing":         protocol.LinkCellular,
+		"Ethernet Realtek PCIe GbE Family Controller": protocol.LinkEthernet,
+		"usb0 lte": protocol.LinkCellular,
 	}
 	for name, want := range tests {
 		if got := InferKind(name); got != want {

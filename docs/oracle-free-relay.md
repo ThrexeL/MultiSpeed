@@ -7,7 +7,7 @@ Ethernet pair can produce.
 
 What this guide does **not** promise: free capacity on demand. Ampere A1 shapes
 are frequently "out of host capacity", and Oracle may stop an Always Free
-instance that looks idle. Both are covered in [Operational notes](#9-operational-notes).
+instance that looks idle. Both are covered in [Operational notes](#8-operational-notes).
 
 Time: about 20 minutes. You need an Oracle Cloud account (a card is required for
 identity verification; Always Free resources are not charged) and the release
@@ -68,7 +68,8 @@ If your subnet uses a network security group instead, add the same rule there.
 
 Oracle's Ubuntu images ship with an `iptables` ruleset that ends in `REJECT`.
 Until you add an accept rule, datagrams are dropped before they ever reach the
-relay. SSH in and run:
+relay. **`bootstrap` in step 5 adds this rule for you**; the commands below are
+the manual equivalent. SSH in and run:
 
 ```bash
 ssh -i /path/to/ssh-key.key ubuntu@PUBLIC_IP
@@ -83,102 +84,99 @@ sudo iptables -L INPUT -n --line-numbers
 The last command should show the UDP 7443 accept above the reject rule. If
 `ufw status` reports the firewall active, also run `sudo ufw allow 7443/udp`.
 
-## 4. Install the relay
+## 4. Copy the relay binary
 
-Copy the ARM64 relay binary, the setup helper, and the service unit from your
-Windows machine (OpenSSH ships with Windows 10/11):
+From Windows (OpenSSH ships with Windows 10/11):
 
 ```powershell
 cd C:\Users\basit\MultiSpeed\dist\multispeed-windows-amd64
-scp -i C:\path\to\ssh-key.key multispeed-relay-linux-arm64 relay-setup.sh multispeed-relay.service ubuntu@PUBLIC_IP:/tmp/
+scp -i C:\path\to\ssh-key.key multispeed-relay-linux-arm64 ubuntu@PUBLIC_IP:/tmp/
 ```
 
-Then, on the instance:
+## 5. Bootstrap the relay
+
+One command installs the binary, the setup helper, and the systemd unit, opens
+UDP 7443 in `iptables`, creates the keys, configures the TUN interface and NAT,
+and starts the service:
 
 ```bash
-sudo apt install -y iproute2 nftables
-sudo install -m 0755 /tmp/multispeed-relay-linux-arm64 /usr/local/bin/multispeed-relay
-sudo install -d -m 0755 /usr/local/lib/multispeed
-sudo install -m 0755 /tmp/relay-setup.sh /usr/local/lib/multispeed/relay-setup.sh
-sudo install -m 0644 /tmp/multispeed-relay.service /etc/systemd/system/
-sudo install -d -m 0700 /etc/multispeed
+ssh -i /path/to/ssh-key.key ubuntu@PUBLIC_IP
 
-# Generates relay.json, client.json, and the first client's keys.
-sudo multispeed-relay init -dir /etc/multispeed -server PUBLIC_IP:7443
-sudo multispeed-relay check -config /etc/multispeed/relay.json
+sudo apt update
+sudo apt install -y iproute2 nftables iptables-persistent
+chmod +x /tmp/multispeed-relay-linux-arm64
+sudo /tmp/multispeed-relay-linux-arm64 bootstrap
 ```
 
-`check` should print the tunnel subnet, MTU, and one allowlisted client. The
-tunnel subnet defaults to `10.77.0.0/16` with the relay at `10.77.0.1`.
+It prints a join code when it finishes:
 
-## 5. Create the TUN interface and NAT rules
+```text
+MultiSpeed relay is ready.
 
-```bash
-sudo /usr/local/lib/multispeed/relay-setup.sh --tun ms0 --port 7443
+Join code (treat it like a password - it contains the client private key):
+
+  MS1.eyJ2IjoxLCJzZXJ2ZXIiOiIxNTguMTAxLjEwMC43Ojc0NDMiLCJyZWxheV9wdWJsaWNfa2V5...
 ```
 
-The script detects the internet-facing interface. On OCI's Ubuntu image it is
-usually `enp0s6`; confirm with `ip -4 route show default`. If the script picked
-the wrong one, rerun with `--wan-if enp0s6` (the TUN interface is reused).
+The code is also stored in `/etc/multispeed/join.txt`. If the public address was
+not detected correctly, rerun with `-server PUBLIC_IP:7443 -force` (that
+generates new keys, so any existing client profile must be replaced).
 
-Run the relay in the foreground once:
+Check the service:
 
 ```bash
-sudo multispeed-relay run -config /etc/multispeed/relay.json -tun ms0
+systemctl status multispeed-relay --no-pager
+sudo journalctl -u multispeed-relay -n 40 --no-pager
 ```
 
 You want `relay listening addr=0.0.0.0:7443 clients=1 tun=ms0 dry_run=false`.
-Leave this running for the Windows test below, or press `Ctrl+C` and use the
-service.
-
-## 6. Start it as a service
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now multispeed-relay
-systemctl status multispeed-relay --no-pager
-sudo journalctl -u multispeed-relay -f
-```
-
 The unit reruns `relay-setup.sh` before every start, so the TUN interface and
 NAT rules survive a reboot.
 
-## 7. Put the client profile on Windows
-
-The generated `client.json` contains the client's private key; treat it like a
-password. It is written `0600` and owned by root, so copy it to your SSH user
-first:
+<details>
+<summary>Manual installation (what bootstrap does)</summary>
 
 ```bash
-sudo install -m 0600 -o ubuntu -g ubuntu /etc/multispeed/client.json /home/ubuntu/client.json
+sudo install -m 0755 /tmp/multispeed-relay-linux-arm64 /usr/local/bin/multispeed-relay
+sudo install -d -m 0755 /usr/local/lib/multispeed
+sudo install -m 0755 relay-setup.sh /usr/local/lib/multispeed/relay-setup.sh
+sudo install -m 0644 multispeed-relay.service /etc/systemd/system/
+sudo install -d -m 0700 /etc/multispeed
+
+sudo multispeed-relay init -dir /etc/multispeed -server PUBLIC_IP:7443
+sudo multispeed-relay check -config /etc/multispeed/relay.json
+sudo /usr/local/lib/multispeed/relay-setup.sh --tun ms0 --port 7443
+sudo systemctl daemon-reload
+sudo systemctl enable --now multispeed-relay
 ```
 
-Then pull it from Windows:
+The script detects the internet-facing interface. On OCI's Ubuntu image it is
+usually `enp0s6`; confirm with `ip -4 route show default`. If it picked the
+wrong one, rerun with `--wan-if enp0s6` (the TUN interface is reused).
 
-```powershell
-scp -i C:\path\to\ssh-key.key ubuntu@PUBLIC_IP:/home/ubuntu/client.json C:\Users\basit\MultiSpeed\dist\multispeed-windows-amd64\client.json
-```
+</details>
 
-Delete the copy on the relay when you are done (`rm /home/ubuntu/client.json`).
+## 6. Connect from Windows
 
-Then add both adapters as explicit paths, exactly as described in
-[launch.md](launch.md#3-create-the-windows-profile), and check the result from
-an **elevated** PowerShell (`doctor` treats a non-elevated prompt as a failure,
-because `run` needs it):
+The join code contains the relay address and a client private key, so there is
+no file to copy. Unpack the bundle, run `MultiSpeed.exe` (accept the UAC prompt
+it shows at startup), paste the code into the first-run wizard, tick the
+adapters, and press **Connect**. The wizard installs `wintun.dll` if it is
+missing.
+
+For the command line instead:
 
 ```powershell
 cd C:\Users\basit\MultiSpeed\dist\multispeed-windows-amd64
-.\multispeed-cli.exe doctor -config client.json
-```
-
-A working setup shows one line per adapter, both `up`, and a handshake line
-ending in `tunnel 10.77.0.2/16`. Then start the tunnel:
-
-```powershell
+.\multispeed-cli.exe join "MS1...." -out client.json
+.\multispeed-cli.exe doctor -config client.json   # elevated prompt
 .\multispeed-cli.exe run -config client.json
 ```
 
-## 8. Measure the relay's ceiling before trusting the result
+A working setup shows one line per adapter, both `up`, and a handshake line
+ending in `tunnel 10.77.0.2/16`.
+
+## 7. Measure the relay's ceiling before trusting the result
 
 An aggregate number means nothing if the relay is the bottleneck. On the relay:
 
@@ -198,14 +196,15 @@ On a 2 OCPU A1 instance expect several hundred Mbps. If it sits near 100 Mbps,
 the relay, not your adapters, limits the tunnel — resize the shape (staying
 within Always Free) or accept that ceiling.
 
-## 9. Operational notes
+## 8. Operational notes
 
 **Idle reclamation.** Oracle may stop Always Free instances deemed idle (low
 CPU, network, and memory utilisation over seven days). A relay that only carries
 occasional traffic can qualify. Keep a copy of `/etc/multispeed/` off the box,
 and if the instance is stopped, start it again from the console — the boot
-volume normally survives. If you ever have to recreate it, run `init` again and
-replace `client.json` on every client, because the keys change.
+volume normally survives. If you ever have to recreate it, run `bootstrap
+-force` again and replace the client profile on every device, because the keys
+change.
 
 **Egress.** 10 TB/month is included. A three-minute test at 250 Mbps moves about
 5.6 GB, so bandwidth is not the constraint.
@@ -228,7 +227,7 @@ the console.
 | Security list is correct, still no handshake | Ubuntu image's `iptables` REJECT | Step 3b |
 | Handshake works, no traffic reaches the internet | `relay-setup.sh` not run, or wrong `--wan-if` | Step 5 |
 | Exactly one path stays `down` | That ISP blocks UDP 7443 or uses carrier NAT the relay cannot answer | Try another port; test the same adapter against another UDP service |
-| Throughput far below the shape's network rating | Launched the AMD micro shape, or the instance is CPU-bound | Use `VM.Standard.A1.Flex`; confirm with the iperf3 test in step 8 |
+| Throughput far below the shape's network rating | Launched the AMD micro shape, or the instance is CPU-bound | Use `VM.Standard.A1.Flex`; confirm with the iperf3 test in step 7 |
 | Instance stopped after a week | Idle reclamation | Start it in the console; keep config backups |
 
 Next: [launch.md](launch.md) for the two-adapter profile, speed tests, and

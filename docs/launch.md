@@ -10,7 +10,8 @@ one Windows machine. It assumes:
 The example machine has Ethernet at `192.168.0.100` (gateway `192.168.0.1`) and
 Wi-Fi at `192.168.1.105` (gateway `192.168.1.1`). Substitute your own addresses.
 The prebuilt bundle uses `multispeed-cli.exe` for the command line and
-`MultiSpeed.exe` for the desktop app.
+`MultiSpeed.exe` for the desktop app. Most people only need the desktop app:
+its first-run wizard writes the profile and installs `wintun.dll` for you.
 
 > [!IMPORTANT]
 > **MultiSpeed is pre-alpha.** The cryptography is unaudited, there is no kill
@@ -103,8 +104,9 @@ Wi-Fi or Ethernet is missing a gateway, fix that before continuing.
 
 ### 1.3 Install `wintun.dll`
 
-Wintun is the userspace TUN driver MultiSpeed uses on Windows. It is GPL-2.0 and
-is **not** bundled with MultiSpeed.
+Wintun is the userspace TUN driver MultiSpeed uses on Windows. It is not bundled
+with MultiSpeed. The desktop wizard downloads the official signed DLL for you on
+its **Connect** step. For the command-line path, install it yourself:
 
 1. Download the official release from <https://www.wintun.net/>.
 2. Open the zip, take `bin\amd64\wintun.dll`.
@@ -114,59 +116,87 @@ Do not copy a `wintun.dll` that belongs to another application (for example the
 one in Cloudflare WARP's program folder); `doctor` only looks next to the
 executables and in the current directory on purpose.
 
-## 2. Deploy the relay
+## 2. Start the relay
 
 You need a Linux VPS with a public IPv4 address. Debian 12 and Ubuntu 22.04/24.04
 are the reference distributions. A 1 vCPU host will bottleneck near 150-250 Mbps;
-pick 2+ vCPU for a throughput test.
+pick 2+ vCPU for a throughput test. No VPS yet?
+[oracle-free-relay.md](oracle-free-relay.md) creates one on Oracle Cloud's
+Always Free tier.
 
-Copy `multispeed-relay-linux-amd64` and `relay-setup.sh` to the VPS, then as
-root:
+Copy `multispeed-relay-linux-amd64` (or `-arm64`) to the VPS and run:
+
+```bash
+chmod +x multispeed-relay-linux-amd64
+sudo ./multispeed-relay-linux-amd64 bootstrap
+```
+
+`bootstrap` installs the relay, the setup helper, and the systemd unit, opens
+UDP 7443 in the host firewall, creates the keys, starts the service, and prints
+a **join code**:
+
+```text
+MS1.eyJ2IjoxLCJzZXJ2ZXIiOiIyMDMuMC4xMTMuOTo3NDQzIiwicmVsYXlfcHVibGljX2tleSI6...
+```
+
+If it cannot detect the public address, pass `-server YOUR.VPS.IP.ADDRESS:7443`.
+The cloud provider's security group or security list must also allow UDP 7443;
+that layer cannot be changed from inside the host.
+
+The join code replaces the old `scp` + JSON-editing workflow. It contains the
+relay address and the first client's private key, so treat it like a password.
+It is also written to `/etc/multispeed/join.txt`.
+
+<details>
+<summary>Manual relay installation (what bootstrap does)</summary>
 
 ```bash
 apt update && apt install -y iproute2 nftables
 install -m 0755 multispeed-relay-linux-amd64 /usr/local/bin/multispeed-relay
 install -d -m 0755 /usr/local/lib/multispeed
 install -m 0755 relay-setup.sh /usr/local/lib/multispeed/relay-setup.sh
+install -m 0644 multispeed-relay.service /etc/systemd/system/
 install -d -m 0700 /etc/multispeed
 
-# Generate the relay key, the first client key, relay.json, and client.json.
 multispeed-relay init -dir /etc/multispeed -server YOUR.VPS.IP.ADDRESS:7443
-
 multispeed-relay check -config /etc/multispeed/relay.json
-```
-
-Allow UDP 7443 in **both** the cloud provider's security group and the host
-firewall, then create the TUN interface and NAT rules:
-
-```bash
 /usr/local/lib/multispeed/relay-setup.sh --tun ms0 --port 7443
-```
-
-Run it in the foreground once to see the logs:
-
-```bash
-multispeed-relay run -config /etc/multispeed/relay.json -tun ms0
-```
-
-For a permanent install, use the unit in the bundle:
-
-```bash
-install -m 0644 multispeed-relay.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now multispeed-relay
-systemctl status multispeed-relay --no-pager
-journalctl -u multispeed-relay -f
 ```
 
-Copy `/etc/multispeed/client.json` to your Windows machine over a secure channel
-(`scp`). It contains the client's private key; treat it like a password.
+`init` writes `relay.json`, `client.json`, and `join.txt`. The systemd unit
+reruns the setup helper before every start, so the TUN interface and NAT rules
+survive a reboot.
 
-## 3. Create the Windows profile
+</details>
 
-Put `client.json` next to `multispeed-cli.exe`, then add both adapters as
-explicit paths. Open it in Notepad and make it look like this, keeping the
-generated keys and server address:
+## 3. Connect the desktop app
+
+Unpack the bundle and run `MultiSpeed.exe`. The first-run wizard asks for the
+join code, then shows every adapter it can bond:
+
+1. Paste the `MS1....` line and press **Continue**.
+2. Tick **Ethernet** and **Wi-Fi**. A USB-tethered phone appears as a cellular
+   adapter and can be ticked too.
+3. Press **Continue**, install `wintun.dll` if the wizard offers it, then press
+   **Connect**. The app asks for administrator rights when it starts (an
+   elevated app is required to create the tunnel and change routes), so accept
+   the UAC prompt when the window opens.
+
+The wizard writes `%AppData%\MultiSpeed\client.json` with explicit paths, so the
+same adapters are used next time. The join code is only needed once.
+
+### 3.1 Command-line alternative
+
+```powershell
+cd C:\path\to\multispeed
+.\multispeed-cli.exe join "MS1...." -out client.json
+```
+
+`join` writes the same profile and lists the adapters it will bond. Edit
+`paths` by hand only if you need custom weights; the generated file looks like
+this:
 
 ```json
 {
@@ -179,7 +209,7 @@ generated keys and server address:
   ],
   "reorder": { "delay_ms": 100, "max_packets": 4096, "max_bytes": 8388608 },
   "handshake_timeout_ms": 1500,
-  "handshake_attempts": 6
+  "handshake_attempts": 8
 }
 ```
 

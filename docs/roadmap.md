@@ -77,6 +77,8 @@ session works and routes are rolled back; real path-failure testing is pending.
 **Goal:** make MultiSpeed comfortable for non-technical users.
 
 - [x] Wails app: connect/disconnect, live path stats, session log, profile picker
+- [x] First-run wizard: paste a join code, choose adapters, install wintun.dll, restart elevated
+- [x] One-command relay `bootstrap` with a join code instead of copying files by hand
 - [x] Automatic DNS configuration and rollback
 - [x] IPv6 leak blocking (best-effort)
 - [ ] Kill switch with crash-safe route recovery
@@ -85,7 +87,7 @@ session works and routes are rolled back; real path-failure testing is pending.
 - [ ] Split tunneling by app (Windows/Linux)
 - [ ] Redundancy mode for latency-sensitive traffic
 - [ ] Adaptive reorder window and bandwidth estimation
-- [ ] Import/export configuration, QR code for mobile pairing
+- [ ] QR code and mobile pairing for join codes
 - [ ] Signed Windows installer, AppImage/deb/rpm for Linux
 - [x] Self-hosting, deployment, and troubleshooting documentation
 

@@ -35,7 +35,20 @@ CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
   -o multispeed-relay ./cmd/multispeed-relay
 ```
 
-Copy the binary and the setup script to the relay host, then install them:
+On a fresh host, the binary can install itself and everything it needs:
+
+```bash
+sudo ./multispeed-relay bootstrap
+```
+
+It copies itself to `/usr/local/bin`, embeds the setup helper and systemd unit,
+opens the UDP port in the host firewall, generates the configuration, starts the
+service, and prints a join code. Pass `-server host:port` when the public address
+cannot be detected, and `-skip-firewall` when another tool owns the firewall.
+The rest of this document describes each step for custom deployments.
+
+To install the pieces by hand, copy the binary and setup script to the relay
+host:
 
 ```bash
 sudo install -m 0755 multispeed-relay /usr/local/bin/multispeed-relay
@@ -58,7 +71,10 @@ sudo multispeed-relay init \
 
 `/etc/multispeed/relay.json` contains the relay private key and the client
 allowlist. `/etc/multispeed/client.json` contains a client private key and the
-relay public key.
+relay public key. `/etc/multispeed/join.txt` contains a one-line join code that
+carries both the public address and the client key, so the desktop app can be
+set up by pasting it instead of copying files:
+`MS1.eyJ2IjoxLCJzZXJ2ZXIiOi...`.
 
 Validate the relay configuration:
 
@@ -66,11 +82,12 @@ Validate the relay configuration:
 sudo multispeed-relay check -config /etc/multispeed/relay.json
 ```
 
-Keep both files mode `0600`. After copying `client.json` to the client over a
-secure channel, remove it from the relay if you do not need it there:
+Keep both files mode `0600`. The join code and `client.json` both contain a
+client private key. After copying them to the client over a secure channel,
+remove the copy from the relay if you do not need it there:
 
 ```bash
-sudo shred -u /etc/multispeed/client.json
+sudo shred -u /etc/multispeed/client.json /etc/multispeed/join.txt
 ```
 
 Add more clients with:
@@ -181,24 +198,21 @@ Do not expose the TUN interface or the tunnel subnet to the public internet.
 
 ## 7. Connect a client
 
-Copy `client.json` to the client, keep it mode `0600` (on Windows, restrict it
-to your account), and test the session without creating a TUN device:
+The easiest path is the desktop app: paste the join code from
+`/etc/multispeed/join.txt`, choose adapters in the wizard, and press Connect.
+The wizard writes the profile and installs `wintun.dll` on Windows.
+
+The command-line equivalent writes the same profile:
 
 ```bash
-sudo multispeed run -config client.json -dry-run
-```
-
-Then run normally:
-
-```bash
+multispeed join "MS1...." -out client.json
+sudo multispeed run -config client.json -dry-run   # session test, no TUN device
 sudo multispeed run -config client.json
 ```
 
-On Windows, put `wintun.dll` next to the client binaries and use an elevated
-PowerShell. `multispeed-cli.exe doctor -config client.json` verifies the setup
-without changing routes. The client automatically installs routes and DNS and
-restores them when it exits. See [launch.md](launch.md) for a two-adapter
-walkthrough.
+On Windows, use an elevated PowerShell and `multispeed-cli.exe`:
+`join` writes the profile, `doctor` checks it without changing routes, and `run`
+opens the tunnel. See [launch.md](launch.md) for a two-adapter walkthrough.
 
 ## 8. Upgrades and removal
 

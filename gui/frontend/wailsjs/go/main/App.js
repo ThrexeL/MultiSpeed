@@ -18,10 +18,38 @@ export function GetLogs(arg1) {
   return window['go']['main']['App']['GetLogs'](arg1);
 }
 
+export function GetSetup() {
+  return window['go']['main']['App']['GetSetup']();
+}
+
 export function GetStatus() {
   return window['go']['main']['App']['GetStatus']();
 }
 
+export function InstallWintun() {
+  return window['go']['main']['App']['InstallWintun']();
+}
+
 export function LoadProfile(arg1) {
   return window['go']['main']['App']['LoadProfile'](arg1);
+}
+
+export function OpenWintunPage() {
+  return window['go']['main']['App']['OpenWintunPage']();
+}
+
+export function PreviewJoin(arg1) {
+  return window['go']['main']['App']['PreviewJoin'](arg1);
+}
+
+export function RefreshAdapters() {
+  return window['go']['main']['App']['RefreshAdapters']();
+}
+
+export function RestartElevated() {
+  return window['go']['main']['App']['RestartElevated']();
+}
+
+export function SaveSetup(arg1, arg2) {
+  return window['go']['main']['App']['SaveSetup'](arg1, arg2);
 }

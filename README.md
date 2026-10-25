@@ -29,7 +29,7 @@ can audit, run, and improve.
 | Linux relay | TUN forwarding, NAT, allowlist, systemd unit; tested over loopback in WSL2 only |
 | Windows client CLI | Wintun TUN, per-path socket binding, automatic routes/DNS, rollback |
 | Linux client CLI | TUN, `SO_BINDTODEVICE`, `iproute2` routes, `resolvectl`/`resolv.conf` DNS |
-| Desktop app | Wails v2 app with profile picker, connect/disconnect, live path stats, logs |
+| Desktop app | Wails v2 app with a first-run wizard (join code, adapter picker, wintun install), live path stats, logs |
 | Android client | Not started |
 | Real multi-ISP testing | Not done; no public VPS testing yet |
 
@@ -47,7 +47,8 @@ can audit, run, and improve.
 - [x] Route, DNS, and interface rollback on disconnect or failed setup
 - [x] Linux relay with TUN forwarding, source NAT, and client isolation
 - [x] Per-IP handshake rate limiting, bounded session table, and pending-session timeouts
-- [x] Relay `init`, `check`, `keygen` and client `check`, `discover`, `doctor`, `keygen`
+- [x] Relay `init`, `check`, `keygen`, `bootstrap` and client `check`, `discover`, `doctor`, `join`, `keygen`
+- [x] One-line join codes and a desktop wizard that detects Ethernet, Wi-Fi, and USB tethering
 - [x] Wails desktop control panel
 - [x] Simulated loss, jitter, latency, and path-outage integration tests
 - [x] Unit tests, loopback end-to-end tests, parser fuzzing, Linux race tests
@@ -107,94 +108,63 @@ See [docs/architecture.md](docs/architecture.md) and
 
 ## Getting started
 
-You need a Linux host for the relay and a Windows or Linux machine for the
-client. During development, a WSL2 Ubuntu instance works as both.
+The short path is three steps: a relay, a join code, and the desktop app.
 
-### 1. Build from source
+### 1. Start a relay
+
+On a Linux host (a fresh Ubuntu instance is ideal), copy the relay binary and
+run the bootstrap command as root:
+
+```bash
+sudo ./multispeed-relay bootstrap
+```
+
+It installs the binary, the network setup helper, and a systemd unit, opens the
+UDP port in the host firewall, creates the keys, starts the service, and prints
+one line:
+
+```text
+MS1.eyJ2IjoxLCJzZXJ2ZXIiOiIxOTguNTEuMTAwLjc6NzQ0MyIs...
+```
+
+That is the **join code**. It contains the relay address and a private key for
+your first client, so treat it like a password. Pass `-server host:port` if the
+host cannot detect its public IPv4 address.
+
+If you do not have a server, [docs/oracle-free-relay.md](docs/oracle-free-relay.md)
+creates one on Oracle Cloud's Always Free tier, including the firewall layer
+that is specific to OCI.
+
+### 2. Connect the desktop app
+
+Download the bundle from `dist/`, unpack it, and run `MultiSpeed.exe`. On first
+launch the app walks through three screens:
+
+1. **Relay** - paste the join code.
+2. **Adapters** - tick the links to bond. Ethernet, Wi-Fi, and USB tethering are
+   detected automatically; a tethered phone shows up as a cellular path.
+3. **Connect** - install `wintun.dll` if it is missing, then connect. The app
+   asks for administrator rights when it starts (the tunnel needs them), so the
+   UAC prompt appears before the window opens.
+
+The app writes the profile to `%AppData%\MultiSpeed\client.json` and remembers
+it, so the join code is only needed once. The dashboard shows per-adapter RTT,
+jitter, loss, and throughput once traffic starts.
+
+### 3. Command-line alternative
+
+The CLI accepts the same code and discovers adapters automatically:
 
 ```powershell
-# From the repository root
-go build -o dist/multispeed.exe ./cmd/multispeed
-go build -o dist/multispeed-relay.exe ./cmd/multispeed-relay
-
-# Cross-compile the relay for a Linux VPS
-$env:GOOS = "linux"; $env:GOARCH = "amd64"
-go build -trimpath -o dist/multispeed-relay-linux-amd64 ./cmd/multispeed-relay
+.\multispeed-cli.exe join "MS1...." -out client.json
+.\multispeed-cli.exe doctor -config client.json   # from an elevated prompt
+.\multispeed-cli.exe run -config client.json
 ```
 
-On Linux, build with `go build -o multispeed ./cmd/multispeed` and likewise for
-the relay. A release bundle names the Windows command-line binary
-`multispeed-cli.exe` so it can sit beside the `MultiSpeed.exe` desktop app on a
-case-insensitive filesystem.
+On Linux, use `sudo ./multispeed join "MS1...." -out client.json`, then
+`sudo ./multispeed run -config client.json`.
 
-### 2. Create the relay and client configuration
-
-On the relay host:
-
-```bash
-./multispeed-relay init -dir ./multispeed-config -server relay.example.com:7443
-```
-
-This writes `relay.json` (relay private key plus the client allowlist) and
-`client.json` (client private key plus the relay public key). Edit the server
-address if needed, then copy `client.json` to the client over a secure channel.
-Both files are secrets; keep them mode `0600` on Linux and never commit them.
-
-Validate a configuration without starting the service:
-
-```bash
-./multispeed-relay check -config ./multispeed-config/relay.json
-```
-
-Add more clients with `multispeed-relay keygen -name laptop` and append their
-public keys and tunnel addresses to the relay allowlist.
-
-### 3. Prepare the relay network
-
-The setup script creates the TUN interface, enables IPv4 forwarding, configures
-nftables source NAT, and isolates clients from each other and from the relay's
-local network:
-
-```bash
-sudo ./scripts/relay-setup.sh --wan-if eth0
-sudo ./multispeed-relay run -config ./multispeed-config/relay.json
-```
-
-For a persistent deployment, see [docs/deployment.md](docs/deployment.md) and
-the systemd unit in [deploy/multispeed-relay.service](deploy/multispeed-relay.service).
-Remember to allow UDP 7443 through the provider's firewall or security group.
-
-No server yet? [docs/oracle-free-relay.md](docs/oracle-free-relay.md) walks
-through running the relay on Oracle Cloud's Always Free tier, including the two
-OCI-specific firewall layers that otherwise silently drop UDP.
-
-### 4. Run the client
-
-On Windows, place `wintun.dll` next to the client binaries (download it from
-<https://www.wintun.net/>; Wintun is GPL-2.0 and is not bundled), then check the
-setup from an elevated PowerShell:
-
-```powershell
-.\dist\multispeed-cli.exe doctor -config client.json
-```
-
-`doctor` checks elevation, `wintun.dll`, the profile, and the relay handshake,
-then reports which physical paths completed a probe. It changes no routes. When
-it is green, connect:
-
-```powershell
-.\dist\multispeed-cli.exe run -config client.json
-```
-
-On Linux:
-
-```bash
-sudo ./multispeed run -config client.json
-```
-
-The client creates the TUN device, moves IPv4 default traffic into the tunnel,
-adds a host route to the relay on every physical adapter in use, and restores
-routes and DNS when it exits. Useful flags:
+Useful flags:
 
 - `-dry-run` establishes the relay session without creating a TUN device.
 - `-no-routes` leaves routing alone; `-no-dns` leaves DNS alone.
@@ -212,15 +182,70 @@ IPv6 is not tunneled. The client installs IPv6 blackhole routes so traffic
 cannot leak around the tunnel, and DNS is sent to the relay-assigned resolver
 when one is configured.
 
-### 5. Build the desktop app
+### 4. Build from source
+
+```powershell
+# From the repository root
+go build -o dist/multispeed.exe ./cmd/multispeed
+go build -o dist/multispeed-relay.exe ./cmd/multispeed-relay
+
+# Cross-compile the relay for a Linux VPS
+$env:GOOS = "linux"; $env:GOARCH = "amd64"
+go build -trimpath -o dist/multispeed-relay-linux-amd64 ./cmd/multispeed-relay
+```
+
+On Linux, build with `go build -o multispeed ./cmd/multispeed` and likewise for
+the relay. A release bundle names the Windows command-line binary
+`multispeed-cli.exe` so it can sit beside the `MultiSpeed.exe` desktop app on a
+case-insensitive filesystem.
+
+### 5. Manual relay setup
+
+`bootstrap` wraps these steps; use them when you need to control each one.
+
+On the relay host:
+
+```bash
+./multispeed-relay init -dir ./multispeed-config -server relay.example.com:7443
+```
+
+This writes `relay.json` (relay private key plus the client allowlist),
+`client.json` (client private key plus the relay public key), and `join.txt`
+(the same one-line code). Both JSON files are secrets; keep them mode `0600` on
+Linux and never commit them.
+
+Validate a configuration without starting the service:
+
+```bash
+./multispeed-relay check -config ./multispeed-config/relay.json
+```
+
+Add more clients with `multispeed-relay keygen -name laptop` and append their
+public keys and tunnel addresses to the relay allowlist.
+
+The setup script creates the TUN interface, enables IPv4 forwarding, configures
+nftables source NAT, and isolates clients from each other and from the relay's
+local network:
+
+```bash
+sudo ./scripts/relay-setup.sh --wan-if eth0
+sudo ./multispeed-relay run -config ./multispeed-config/relay.json
+```
+
+For a persistent deployment, see [docs/deployment.md](docs/deployment.md) and
+the systemd unit in [deploy/multispeed-relay.service](deploy/multispeed-relay.service).
+Remember to allow UDP 7443 through the provider's firewall or security group.
+
+### 6. Build the desktop app
 
 ```powershell
 cd gui
 wails build
 ```
 
-The executable is written to `gui/build/bin/MultiSpeed.exe`. Copy `wintun.dll`
-beside it. The app requests administrator rights because it creates a TUN
+The executable is written to `gui/build/bin/MultiSpeed.exe`. The first-run
+wizard can install `wintun.dll` for you from the official signed build; Wintun
+is not bundled. The app requests administrator rights because it creates a TUN
 device and changes system routes. See [gui/README.md](gui/README.md) for
 requirements and development mode.
 

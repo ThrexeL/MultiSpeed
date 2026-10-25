@@ -1,5 +1,59 @@
 export namespace main {
 	
+	export class AdapterView {
+	    interface: string;
+	    address: string;
+	    kind: string;
+	    weight: number;
+	    mtu: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new AdapterView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.interface = source["interface"];
+	        this.address = source["address"];
+	        this.kind = source["kind"];
+	        this.weight = source["weight"];
+	        this.mtu = source["mtu"];
+	    }
+	}
+	export class JoinPreview {
+	    server: string;
+	    client_name: string;
+	    adapters: AdapterView[];
+	
+	    static createFrom(source: any = {}) {
+	        return new JoinPreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.server = source["server"];
+	        this.client_name = source["client_name"];
+	        this.adapters = this.convertValues(source["adapters"], AdapterView);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class LogLine {
 	    seq: number;
 	    time: string;
@@ -86,6 +140,76 @@ export namespace main {
 	        this.pending = source["pending"];
 	    }
 	}
+	export class TUNStatus {
+	    platform: string;
+	    required: boolean;
+	    ready: boolean;
+	    location: string;
+	    download_url: string;
+	    detail?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TUNStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.platform = source["platform"];
+	        this.required = source["required"];
+	        this.ready = source["ready"];
+	        this.location = source["location"];
+	        this.download_url = source["download_url"];
+	        this.detail = source["detail"];
+	    }
+	}
+	export class SetupState {
+	    version: string;
+	    platform: string;
+	    elevated: boolean;
+	    needs_setup: boolean;
+	    has_profile: boolean;
+	    profile: Profile;
+	    profile_path: string;
+	    adapters: AdapterView[];
+	    tun: TUNStatus;
+	    warning?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SetupState(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.version = source["version"];
+	        this.platform = source["platform"];
+	        this.elevated = source["elevated"];
+	        this.needs_setup = source["needs_setup"];
+	        this.has_profile = source["has_profile"];
+	        this.profile = this.convertValues(source["profile"], Profile);
+	        this.profile_path = source["profile_path"];
+	        this.adapters = this.convertValues(source["adapters"], AdapterView);
+	        this.tun = this.convertValues(source["tun"], TUNStatus);
+	        this.warning = source["warning"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class StatusView {
 	    state: string;
 	    version: string;
@@ -98,6 +222,8 @@ export namespace main {
 	    connected_for?: string;
 	    reconnecting?: boolean;
 	    retry_attempt?: number;
+	    elevated: boolean;
+	    tun_ready: boolean;
 	    paths: PathView[];
 	    reorder: ReorderView;
 	    data_seq: number;
@@ -120,6 +246,8 @@ export namespace main {
 	        this.connected_for = source["connected_for"];
 	        this.reconnecting = source["reconnecting"];
 	        this.retry_attempt = source["retry_attempt"];
+	        this.elevated = source["elevated"];
+	        this.tun_ready = source["tun_ready"];
 	        this.paths = this.convertValues(source["paths"], PathView);
 	        this.reorder = this.convertValues(source["reorder"], ReorderView);
 	        this.data_seq = source["data_seq"];

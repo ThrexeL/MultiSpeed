@@ -5,6 +5,7 @@ go 1.27.0
 require (
 	github.com/multispeed-app/multispeed v0.0.0
 	github.com/wailsapp/wails/v2 v2.17.0
+	golang.org/x/sys v0.49.0
 )
 
 require (
@@ -35,7 +36,6 @@ require (
 	github.com/wailsapp/go-webview2 v1.0.22 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/net v0.60.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 	golang.zx2c4.com/wireguard v0.0.0-20261024220952-b3bc704ef0ee // indirect

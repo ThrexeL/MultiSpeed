@@ -36,6 +36,8 @@ func main() {
 		err = check(args)
 	case "discover":
 		err = discover(args)
+	case "join":
+		err = join(args)
 	case "doctor":
 		err = doctor(args)
 	case "keygen":
@@ -57,6 +59,7 @@ func usage() {
 
 Usage:
   multispeed run      -config client.json [-tun ms0] [-dry-run] [-no-routes] [-no-dns] [-stats 5s] [-debug]
+  multispeed join     [-out client.json] <code>
   multispeed doctor   -config client.json [-wait 3s]
   multispeed doctor   -self-test [-wait 3s]
   multispeed check    -config client.json
@@ -77,6 +80,10 @@ routing or DNS state, so it is safe to run before connecting.
 doctor -self-test needs no relay host, TUN device, or administrator rights: it
 starts a relay and client inside this process over loopback and moves packets
 both ways. Use it to verify that MultiSpeed itself works on this machine.
+
+join turns a one-line join code from the relay setup into a client profile, so
+you do not have to copy files or edit JSON by hand. The code contains a private
+key; treat it like a password.
 `)
 }
 
@@ -241,6 +248,68 @@ func check(args []string) error {
 	}
 	fmt.Printf("client config OK: server=%s paths=%s reorder_delay_ms=%d\n",
 		cfg.Server, paths, file.Reorder.DelayMS)
+	return nil
+}
+
+func join(args []string) error {
+	// The join code is positional, so -out may appear before or after it. The
+	// standard flag package stops at the first positional argument, so parse the
+	// two forms here.
+	outPath := "client.json"
+	var positional []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "-h" || arg == "--help":
+			fmt.Fprintln(os.Stderr, "usage: multispeed join [-out client.json] <code>")
+			return nil
+		case arg == "-out" || arg == "--out":
+			if i+1 >= len(args) {
+				return errors.New("-out needs a path")
+			}
+			i++
+			outPath = args[i]
+		case strings.HasPrefix(arg, "-out="):
+			outPath = strings.TrimPrefix(arg, "-out=")
+		case strings.HasPrefix(arg, "--out="):
+			outPath = strings.TrimPrefix(arg, "--out=")
+		default:
+			positional = append(positional, arg)
+		}
+	}
+	if len(positional) != 1 {
+		return errors.New("usage: multispeed join [-out client.json] <code>")
+	}
+	code, err := config.DecodeJoinCode(positional[0])
+	if err != nil {
+		return err
+	}
+	clientCfg, err := code.Client()
+	if err != nil {
+		return err
+	}
+	if err := config.Save(outPath, clientCfg); err != nil {
+		return err
+	}
+	fmt.Printf("saved %s: relay %s", outPath, clientCfg.Server)
+	if code.Name != "" {
+		fmt.Printf(", client %q", code.Name)
+	}
+	fmt.Println()
+
+	specs, err := transport.Discover()
+	if err != nil {
+		return err
+	}
+	if len(specs) == 0 {
+		fmt.Println("warning: no usable adapters found; connect one before running the client")
+		return nil
+	}
+	fmt.Println("adapters that will be bonded automatically:")
+	for _, p := range specs {
+		fmt.Printf("  %-24s %-16s %-10s weight=%d\n", p.Interface, p.LocalAddr, p.Kind, p.Weight)
+	}
+	fmt.Printf("next: multispeed run -config %s\n", outPath)
 	return nil
 }
 

@@ -271,7 +271,7 @@ func Discover() ([]PathSpec, error) {
 		if err != nil {
 			continue
 		}
-		kind := InferKind(iface.Name)
+		kind := InferKind(iface.Name + " " + interfaceDescription(iface.Name))
 		out = append(out, PathSpec{
 			Interface: iface.Name,
 			LocalAddr: ip.String(),
@@ -287,15 +287,22 @@ func Discover() ([]PathSpec, error) {
 	return out, nil
 }
 
-// InferKind guesses a link type from an interface name.
-func InferKind(name string) protocol.LinkKind {
-	n := strings.ToLower(name)
+// InferKind guesses a link type from an interface name, or from its name and
+// OS description ("Ethernet 3 Remote NDIS Compatible Device"). USB tethering is
+// classified as cellular, because that is usually what the phone is sharing.
+func InferKind(text string) protocol.LinkKind {
+	n := strings.ToLower(text)
 	switch {
 	case strings.Contains(n, "starlink"):
 		return protocol.LinkStarlink
 	case strings.Contains(n, "wi-fi"), strings.Contains(n, "wifi"), strings.Contains(n, "wlan"), strings.Contains(n, "wireless"):
 		return protocol.LinkWiFi
-	case strings.Contains(n, "wwan"), strings.Contains(n, "cellular"), strings.Contains(n, "lte"), strings.Contains(n, "5g"), strings.Contains(n, "modem"):
+	case strings.Contains(n, "wwan"), strings.Contains(n, "cellular"), containsWord(n, "lte"), containsWord(n, "5g"), strings.Contains(n, "modem"):
+		return protocol.LinkCellular
+	case strings.Contains(n, "rndis"), strings.Contains(n, "remote ndis"),
+		strings.Contains(n, "tether"), strings.Contains(n, "internet sharing"),
+		strings.Contains(n, "android"), strings.Contains(n, "iphone"),
+		strings.Contains(n, "mobile device ethernet"), strings.Contains(n, "usb modem"):
 		return protocol.LinkCellular
 	case strings.Contains(n, "ethernet"), strings.HasPrefix(n, "eth"), strings.Contains(n, "enp"), strings.Contains(n, "eno"):
 		return protocol.LinkEthernet
@@ -304,6 +311,27 @@ func InferKind(name string) protocol.LinkKind {
 	default:
 		return protocol.LinkUnknown
 	}
+}
+
+// containsWord matches a short marker only on word boundaries, so "lte" does
+// not match "Realtek" and "5g" does not match an arbitrary digit sequence.
+func containsWord(n, word string) bool {
+	for {
+		i := strings.Index(n, word)
+		if i < 0 {
+			return false
+		}
+		start := i == 0 || !isWordByte(n[i-1])
+		end := i+len(word) == len(n) || !isWordByte(n[i+len(word)])
+		if start && end {
+			return true
+		}
+		n = n[i+len(word):]
+	}
+}
+
+func isWordByte(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= '0' && b <= '9'
 }
 
 // DefaultWeight returns a capacity hint for a link type.
@@ -371,7 +399,7 @@ func skipInterface(name string) bool {
 	prefixes := []string{
 		"multispeed", "ms0", "wintun", "tun", "tap", "tailscale", "zt",
 		"docker", "veth", "br-", "virbr", "vmnet", "utun", "wg",
-		"speedify", "cloudflare", "warp",
+		"speedify", "cloudflare", "warp", "vethernet", "hyper-v", "bluetooth",
 	}
 	for _, p := range prefixes {
 		if strings.HasPrefix(n, p) {

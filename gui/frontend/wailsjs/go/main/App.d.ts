@@ -10,6 +10,20 @@ export function Disconnect():Promise<void>;
 
 export function GetLogs(arg1:number):Promise<Array<main.LogLine>>;
 
+export function GetSetup():Promise<main.SetupState>;
+
 export function GetStatus():Promise<main.StatusView>;
 
+export function InstallWintun():Promise<main.TUNStatus>;
+
 export function LoadProfile(arg1:string):Promise<main.Profile>;
+
+export function OpenWintunPage():Promise<void>;
+
+export function PreviewJoin(arg1:string):Promise<main.JoinPreview>;
+
+export function RefreshAdapters():Promise<Array<main.AdapterView>>;
+
+export function RestartElevated():Promise<void>;
+
+export function SaveSetup(arg1:string,arg2:Array<string>):Promise<main.Profile>;
