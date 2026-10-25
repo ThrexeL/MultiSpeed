@@ -1,4 +1,4 @@
-module github.com/multispeed-app/multispeed
+module github.com/ThrexeL/MultiSpeed
 
 go 1.27.0
 
