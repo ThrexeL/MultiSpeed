@@ -1,0 +1,19 @@
+{
+  "listen": "0.0.0.0:7443",
+  "private_key": "<relay X25519 private key, base64; generate with multispeed-relay init>",
+  "prefix_len": 16,
+  "mtu": 1400,
+  "dns": "",
+  "clients": [
+    {
+      "name": "laptop",
+      "public_key": "<client X25519 public key, base64; generate with multispeed-relay keygen>",
+      "address": "10.77.0.2"
+    }
+  ],
+  "reorder": {
+    "delay_ms": 100,
+    "max_packets": 4096,
+    "max_bytes": 8388608
+  }
+}

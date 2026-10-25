@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="color-scheme" content="dark"/>
+  <title>MultiSpeed</title>
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <span class="dot dot-a"></span>
+        <span class="dot dot-b"></span>
+        <span class="dot dot-c"></span>
+        <span class="brand-line"></span>
+      </div>
+      <div>
+        <h1>MultiSpeed</h1>
+        <p class="tagline">self-hosted link bonding</p>
+      </div>
+    </div>
+    <div class="status-group">
+      <span id="state-pill" class="pill disconnected">Disconnected</span>
+      <button id="connect-btn" class="btn primary" disabled>Connect</button>
+      <button id="disconnect-btn" class="btn ghost" disabled>Disconnect</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel profile-panel">
+      <div class="panel-heading">
+        <h2>Profile</h2>
+        <div class="actions">
+          <button id="reload-btn" class="btn subtle" disabled>Reload</button>
+          <button id="browse-btn" class="btn subtle">Choose…</button>
+        </div>
+      </div>
+      <p class="profile-path" id="profile-path">No profile selected</p>
+      <div class="profile-meta">
+        <div><span class="label">Relay</span><span id="profile-server">—</span></div>
+        <div><span class="label">Paths</span><span id="profile-paths">—</span></div>
+        <div><span class="label">Reorder</span><span id="profile-reorder">—</span></div>
+      </div>
+    </section>
+
+    <section class="panel session-panel">
+      <div class="panel-heading">
+        <h2>Session</h2>
+        <span class="subtle" id="session-uptime"></span>
+      </div>
+      <div class="session-grid">
+        <div class="metric"><span class="label">Tunnel IPv4</span><strong id="tunnel-ip">—</strong></div>
+        <div class="metric"><span class="label">MTU</span><strong id="session-mtu">—</strong></div>
+        <div class="metric"><span class="label">Delivered</span><strong id="delivered">—</strong></div>
+        <div class="metric"><span class="label">Pending</span><strong id="pending">—</strong></div>
+      </div>
+      <div class="error-banner" id="error-banner" hidden>
+        <span class="error-title">Connection error</span>
+        <p id="error-text"></p>
+      </div>
+    </section>
+
+    <section class="panel paths-panel">
+      <div class="panel-heading">
+        <h2>Paths</h2>
+        <span class="subtle">live telemetry</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Path</th>
+              <th>Type</th>
+              <th>State</th>
+              <th class="num">RTT</th>
+              <th class="num">Jitter</th>
+              <th class="num">Loss</th>
+              <th class="num">Rx</th>
+            </tr>
+          </thead>
+          <tbody id="paths-body">
+            <tr><td colspan="7" class="empty">Connect to see path telemetry.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="reorder-line" id="reorder-line"></p>
+    </section>
+
+    <section class="panel logs-panel">
+      <div class="panel-heading">
+        <h2>Session log</h2>
+        <button id="clear-log" class="btn subtle">Clear</button>
+      </div>
+      <pre id="log" class="log" aria-live="polite"></pre>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>Pre-alpha. IPv6 is not tunneled; disable it on physical adapters if that matters to you.</span>
+    <span id="version"></span>
+  </footer>
+</div>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>

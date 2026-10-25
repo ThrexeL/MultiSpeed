@@ -1,0 +1,34 @@
+[Unit]
+Description=MultiSpeed relay
+Documentation=https://github.com/multispeed-app/multispeed/blob/main/docs/deployment.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# ExecStartPre recreates the TUN interface and NAT rules after every boot.
+# Adjust --wan-if if the host has more than one uplink.
+ExecStartPre=/usr/local/lib/multispeed/relay-setup.sh --tun ms0 --port 7443
+ExecStart=/usr/local/bin/multispeed-relay run -config /etc/multispeed/relay.json -tun ms0
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+
+# The relay currently runs as root because it opens a TUN device and the
+# setup helper writes sysctl and nftables state. A split privileged/unprivileged
+# design is planned.
+User=root
+Group=root
+UMask=0077
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

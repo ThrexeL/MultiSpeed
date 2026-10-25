@@ -1,0 +1,13 @@
+# Normalize text files so scripts and service units work on Linux and WSL
+# even when the repository is checked out on Windows.
+* text=auto
+*.sh text eol=lf
+*.service text eol=lf
+*.go text eol=lf
+*.js text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf

@@ -1,0 +1,13 @@
+{
+  "server": "relay.example.com:7443",
+  "relay_public_key": "<relay X25519 public key, base64>",
+  "private_key": "<client X25519 private key, base64>",
+  "paths": [],
+  "reorder": {
+    "delay_ms": 100,
+    "max_packets": 4096,
+    "max_bytes": 8388608
+  },
+  "handshake_timeout_ms": 1500,
+  "handshake_attempts": 6
+}

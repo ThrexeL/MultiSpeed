@@ -1,0 +1,51 @@
+# Binaries and build output
+/bin/
+/dist/
+/build/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.*
+*.prof
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Secrets and local configuration
+keys/
+secrets/
+*.key
+*.pem
+*.p12
+*.pfx
+config.local.*
+*_local.toml
+.env
+.env.*
+
+# Node / Wails frontend
+node_modules/
+gui/frontend/dist/*
+!gui/frontend/dist/.gitkeep
+gui/build/bin/
+gui/node_modules/
+gui/frontend/node_modules/
+
+# IDE and OS noise
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs and temporary files
+*.log
+tmp/
+.tmp/
