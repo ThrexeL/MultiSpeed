@@ -108,7 +108,8 @@ A Linux daemon that:
 7. Maintains per-client, per-path telemetry and schedules return traffic.
 
 The relay is intentionally stateless across restarts apart from configuration:
-sessions are re-established by clients after a relay restart.
+clients must re-establish their sessions after a relay restart. Automatic
+reconnect is planned.
 
 ### 3.3 Desktop control plane
 
