@@ -258,6 +258,7 @@ func (r *Relay) Run(ctx context.Context, dev tun.Device) error {
 	for {
 		select {
 		case <-ctx.Done():
+			r.sendByeAll("relay shutdown")
 			return ctx.Err()
 		case <-r.done:
 			return ErrClosed
@@ -711,6 +712,30 @@ func (r *Relay) sendPing(s *session, cp *relayPath, now time.Time) {
 	}
 	cp.pingToken = token
 	cp.pingSentAt = now
+}
+
+// sendByeAll tells every active client that the relay is shutting down so
+// clients reconnect immediately instead of waiting for the session timeout.
+// It must be called from the Run goroutine, which owns the session table.
+func (r *Relay) sendByeAll(reason string) {
+	bye, err := protocol.NewJSONControl(protocol.ControlBye, protocol.Bye{Reason: reason})
+	if err != nil {
+		return
+	}
+	for _, s := range r.sessions {
+		if !s.active {
+			continue
+		}
+		for _, id := range s.order {
+			cp := s.paths[id]
+			if cp == nil {
+				continue
+			}
+			if err := r.sendControl(s, cp, bye); err != nil {
+				r.log.Debug("send bye failed", "client", s.client.name, "path", id, "error", err)
+			}
+		}
+	}
 }
 
 func (r *Relay) sendControl(s *session, cp *relayPath, ctrl protocol.Control) error {

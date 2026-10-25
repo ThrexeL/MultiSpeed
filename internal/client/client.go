@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"net"
 	"net/netip"
 	"sync"
@@ -30,7 +31,9 @@ const (
 	probeInterval           = 2 * time.Second
 	helloRetryInterval      = 2 * time.Second
 	helloRefreshInterval    = 30 * time.Second
-	sessionTimeout          = 30 * time.Second
+	defaultSessionTimeout   = 30 * time.Second
+	reconnectMinBackoff     = time.Second
+	reconnectMaxBackoff     = 30 * time.Second
 )
 
 var (
@@ -41,6 +44,10 @@ var (
 	// ErrSessionTimeout is returned when no authenticated frame arrives for too
 	// long.
 	ErrSessionTimeout = errors.New("client: session timed out")
+	// ErrSessionChanged is returned when a reconnect is answered with different
+	// tunnel parameters. Routes and the TUN device would need to be rebuilt, so
+	// the client stops instead of silently keeping stale host configuration.
+	ErrSessionChanged = errors.New("client: relay assigned different tunnel parameters")
 )
 
 // Config configures a client session.
@@ -59,19 +66,24 @@ type Config struct {
 	HandshakeTimeout time.Duration
 	// HandshakeAttempts is the total number of attempts across paths.
 	HandshakeAttempts int
+	// SessionTimeout bounds how long the client waits for an authenticated
+	// frame before reconnecting. Zero uses 30 seconds.
+	SessionTimeout time.Duration
 	// Logger receives structured session events. Nil uses slog.Default.
 	Logger *slog.Logger
 }
 
 // Status is a point-in-time view of the client for the control API.
 type Status struct {
-	Connected  bool                 `json:"connected"`
-	Server     netip.AddrPort       `json:"server"`
-	Session    protocol.SessionInfo `json:"session"`
-	Paths      []bond.Snapshot      `json:"paths"`
-	Reorder    bond.ReorderStats    `json:"reorder"`
-	DataSeq    uint64               `json:"data_seq"`
-	ControlSeq uint64               `json:"control_seq"`
+	Connected        bool                 `json:"connected"`
+	Reconnecting     bool                 `json:"reconnecting"`
+	ReconnectAttempt int                  `json:"reconnect_attempt"`
+	Server           netip.AddrPort       `json:"server"`
+	Session          protocol.SessionInfo `json:"session"`
+	Paths            []bond.Snapshot      `json:"paths"`
+	Reorder          bond.ReorderStats    `json:"reorder"`
+	DataSeq          uint64               `json:"data_seq"`
+	ControlSeq       uint64               `json:"control_seq"`
 }
 
 // Client is an established MultiSpeed session. Create one with Dial.
@@ -92,6 +104,9 @@ type Client struct {
 	done      chan struct{}
 	closeOnce sync.Once
 	connected atomic.Bool
+
+	reconnecting     atomic.Bool
+	reconnectAttempt atomic.Int64
 
 	statusMu sync.RWMutex
 	status   Status
@@ -141,6 +156,9 @@ func Dial(ctx context.Context, cfg Config) (*Client, error) {
 	if cfg.Reorder == (bond.ReorderConfig{}) {
 		cfg.Reorder = bond.DefaultReorderConfig()
 	}
+	if cfg.SessionTimeout <= 0 {
+		cfg.SessionTimeout = defaultSessionTimeout
+	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
@@ -171,69 +189,14 @@ func Dial(ctx context.Context, cfg Config) (*Client, error) {
 		scheduler: bond.NewScheduler(),
 		done:      make(chan struct{}),
 	}
-	reorder, err := bond.NewReorderBuffer(cfg.Reorder)
-	if err != nil {
+	if err := c.openPaths(specs); err != nil {
 		return nil, err
 	}
-	c.reorder = reorder
-
-	// Open every path before the handshake so all sockets are ready and NAT
-	// mappings can be established as soon as the session exists.
-	for i, spec := range specs {
-		id := protocol.PathID(i)
-		tr, err := transport.OpenPath(id, spec, server)
-		if err != nil {
-			c.closePaths()
-			return nil, err
-		}
-		bp, err := bond.NewPath(id, tr.Name, tr.Kind, tr.Weight, tr.MTU)
-		if err != nil {
-			_ = tr.Close()
-			c.closePaths()
-			return nil, err
-		}
-		if err := c.scheduler.Add(bp); err != nil {
-			_ = tr.Close()
-			c.closePaths()
-			return nil, err
-		}
-		cp := &clientPath{tr: tr, stats: bp, lastStatsAt: time.Now()}
-		c.order = append(c.order, cp)
-		c.paths[id] = cp
-	}
-	if len(c.order) == 0 {
-		return nil, errors.New("client: no paths opened")
-	}
-
-	info, keys, handshakePath, err := c.handshake(ctx)
+	info, err := c.connect(ctx, cfg.HandshakeAttempts, false)
 	if err != nil {
 		c.closePaths()
 		return nil, err
 	}
-	c.info = info
-	c.c2s, err = crypto.NewTrafficCipher(keys.ClientToServer[:])
-	if err != nil {
-		c.closePaths()
-		return nil, err
-	}
-	c.s2c, err = crypto.NewTrafficCipher(keys.ServerToClient[:])
-	if err != nil {
-		c.closePaths()
-		return nil, err
-	}
-
-	// The handshake response proves the path works in both directions.
-	handshakePath.stats.ObserveFrame(time.Now())
-
-	// Announce every path. Failures are not fatal: probes and periodic hello
-	// retries will recover a path that was not ready yet.
-	for _, cp := range c.order {
-		if err := c.sendHello(cp, time.Now()); err != nil {
-			c.log.Warn("send path hello failed", "path", cp.tr.Name, "error", err)
-		}
-	}
-	c.connected.Store(true)
-	c.refreshStatus(time.Now())
 	c.log.Info("session established",
 		"server", server.String(),
 		"session", info.SessionID,
@@ -243,8 +206,150 @@ func Dial(ctx context.Context, cfg Config) (*Client, error) {
 	return c, nil
 }
 
+// openPaths opens one UDP socket per spec and prepares per-path state. It does
+// not establish a session.
+func (c *Client) openPaths(specs []transport.PathSpec) error {
+	// Open every path before the handshake so all sockets are ready and NAT
+	// mappings can be established as soon as the session exists.
+	for i, spec := range specs {
+		id := protocol.PathID(i)
+		tr, err := transport.OpenPath(id, spec, c.server)
+		if err != nil {
+			c.closePaths()
+			return err
+		}
+		bp, err := bond.NewPath(id, tr.Name, tr.Kind, tr.Weight, tr.MTU)
+		if err != nil {
+			_ = tr.Close()
+			c.closePaths()
+			return err
+		}
+		if err := c.scheduler.Add(bp); err != nil {
+			_ = tr.Close()
+			c.closePaths()
+			return err
+		}
+		cp := &clientPath{tr: tr, stats: bp, lastStatsAt: time.Now()}
+		c.order = append(c.order, cp)
+		c.paths[id] = cp
+	}
+	if len(c.order) == 0 {
+		return errors.New("client: no paths opened")
+	}
+	return nil
+}
+
+// connect authenticates the relay and installs the resulting session. When
+// verify is true the relay's tunnel parameters must match the existing session
+// so that host routes and the TUN device remain valid.
+func (c *Client) connect(ctx context.Context, attempts int, verify bool) (protocol.SessionInfo, error) {
+	info, keys, handshakePath, err := c.handshake(ctx, attempts)
+	if err != nil {
+		return protocol.SessionInfo{}, err
+	}
+	if verify {
+		if err := c.checkSessionInfo(info); err != nil {
+			return protocol.SessionInfo{}, err
+		}
+	}
+	if err := c.startSession(info, keys, handshakePath, time.Now()); err != nil {
+		return protocol.SessionInfo{}, err
+	}
+	return info, nil
+}
+
+// checkSessionInfo rejects a reconnect that would require rebuilding host
+// networking. The caller is expected to tear the tunnel down cleanly instead.
+func (c *Client) checkSessionInfo(info protocol.SessionInfo) error {
+	if info.Address != c.info.Address {
+		return fmt.Errorf("%w: tunnel address %s -> %s", ErrSessionChanged, c.info.Address, info.Address)
+	}
+	if info.PrefixLen != c.info.PrefixLen {
+		return fmt.Errorf("%w: prefix length %d -> %d", ErrSessionChanged, c.info.PrefixLen, info.PrefixLen)
+	}
+	if info.MTU != c.info.MTU {
+		return fmt.Errorf("%w: MTU %d -> %d", ErrSessionChanged, c.info.MTU, info.MTU)
+	}
+	if info.DNS != c.info.DNS {
+		return fmt.Errorf("%w: DNS %s -> %s", ErrSessionChanged, c.info.DNS, info.DNS)
+	}
+	return nil
+}
+
+// startSession installs fresh ciphers, scheduler, reorder state, and path
+// telemetry for a handshake result, then announces every path.
+func (c *Client) startSession(info protocol.SessionInfo, keys crypto.TrafficKeys, handshakePath *clientPath, now time.Time) error {
+	c2s, err := crypto.NewTrafficCipher(keys.ClientToServer[:])
+	if err != nil {
+		return err
+	}
+	s2c, err := crypto.NewTrafficCipher(keys.ServerToClient[:])
+	if err != nil {
+		return err
+	}
+	reorder, err := bond.NewReorderBuffer(c.cfg.Reorder)
+	if err != nil {
+		return err
+	}
+	scheduler, err := c.buildScheduler(now)
+	if err != nil {
+		return err
+	}
+
+	c.info = info
+	c.c2s = c2s
+	c.s2c = s2c
+	c.reorder = reorder
+	c.scheduler = scheduler
+
+	// The handshake response proves the handshake path works in both directions.
+	handshakePath.stats.ObserveFrame(now)
+
+	// Announce every path. Failures are not fatal: probes and periodic hello
+	// retries will recover a path that was not ready yet.
+	for _, cp := range c.order {
+		if err := c.sendHello(cp, now); err != nil {
+			c.log.Warn("send path hello failed", "path", cp.tr.Name, "error", err)
+		}
+	}
+	c.connected.Store(true)
+	c.reconnecting.Store(false)
+	c.reconnectAttempt.Store(0)
+	c.refreshStatus(now)
+	return nil
+}
+
+// buildScheduler resets every path's telemetry for a new session and returns a
+// scheduler containing those paths. It must only be called while no data-path
+// goroutine is running.
+func (c *Client) buildScheduler(now time.Time) (*bond.Scheduler, error) {
+	scheduler := bond.NewScheduler()
+	for _, cp := range c.order {
+		bp, err := bond.NewPath(cp.tr.ID, cp.tr.Name, cp.tr.Kind, cp.tr.Weight, cp.tr.MTU)
+		if err != nil {
+			return nil, err
+		}
+		if err := scheduler.Add(bp); err != nil {
+			return nil, err
+		}
+		cp.stats = bp
+		cp.pingToken = 0
+		cp.pingSentAt = time.Time{}
+		cp.helloSentAt = time.Time{}
+		cp.lastSentAt = time.Time{}
+		cp.winBytes = 0
+		cp.lastStatsAt = now
+		cp.probeLoss = bond.ProbeLoss{}
+	}
+	return scheduler, nil
+}
+
 // Info returns the relay-assigned session metadata.
-func (c *Client) Info() protocol.SessionInfo { return c.info }
+func (c *Client) Info() protocol.SessionInfo {
+	c.statusMu.RLock()
+	defer c.statusMu.RUnlock()
+	return c.status.Session
+}
 
 // Server returns the resolved relay address.
 func (c *Client) Server() netip.AddrPort { return c.server }
@@ -259,8 +364,8 @@ func (c *Client) Status() Status {
 }
 
 // Run forwards packets between dev and the relay until the context is
-// cancelled, the session times out, or the device fails. The caller retains
-// ownership of dev.
+// cancelled, the tunnel cannot be re-established, or the device fails. The
+// caller retains ownership of dev.
 func (c *Client) Run(ctx context.Context, dev tun.Device) error {
 	if dev == nil {
 		return errors.New("client: nil TUN device")
@@ -275,11 +380,59 @@ func (c *Client) Run(ctx context.Context, dev tun.Device) error {
 	tunPackets := make(chan []byte, 256)
 	tunErrors := make(chan error, 1)
 
-	for _, cp := range c.order {
-		go c.readLoop(ctx, cp, inbound)
-	}
 	go c.tunReadLoop(ctx, dev, tunPackets, tunErrors)
 
+	var (
+		readers   sync.WaitGroup
+		stopReads context.CancelFunc
+	)
+	startReaders := func() {
+		readCtx, cancel := context.WithCancel(ctx)
+		stopReads = cancel
+		for _, cp := range c.order {
+			readers.Add(1)
+			go func(cp *clientPath) {
+				defer readers.Done()
+				c.readLoop(readCtx, cp, inbound)
+			}(cp)
+		}
+	}
+	stopReaders := func() {
+		if stopReads != nil {
+			stopReads()
+		}
+		// A blocked UDP read is not interrupted by context cancellation.
+		for _, cp := range c.order {
+			_ = cp.tr.SetReadDeadline(time.Now())
+		}
+		readers.Wait()
+		for _, cp := range c.order {
+			_ = cp.tr.SetReadDeadline(time.Time{})
+		}
+	}
+	startReaders()
+	defer stopReaders()
+
+	for {
+		err := c.runSession(ctx, inbound, tunPackets, tunErrors)
+		if !errors.Is(err, ErrRemoteClosed) && !errors.Is(err, ErrSessionTimeout) {
+			return err
+		}
+
+		stopReaders()
+		c.log.Warn("session lost; reconnecting", "reason", err)
+		if err := c.reconnect(ctx, tunPackets, tunErrors); err != nil {
+			return err
+		}
+		// Frames queued by the old session cannot be decrypted with the new
+		// keys and must not delay fresh traffic.
+		drainInbound(inbound)
+		startReaders()
+	}
+}
+
+// runSession handles one established session until it fails.
+func (c *Client) runSession(ctx context.Context, inbound <-chan inboundPacket, tunPackets <-chan []byte, tunErrors <-chan error) error {
 	reorderTicker := time.NewTicker(reorderTickInterval)
 	defer reorderTicker.Stop()
 	houseTicker := time.NewTicker(housekeepingInterval)
@@ -298,17 +451,14 @@ func (c *Client) Run(ctx context.Context, dev tun.Device) error {
 		case ib := <-inbound:
 			lastInbound = ib.at
 			if err := c.handleInbound(ib); err != nil {
-				if errors.Is(err, ErrRemoteClosed) || errors.Is(err, ErrSessionTimeout) {
+				if errors.Is(err, ErrRemoteClosed) {
 					return err
 				}
 				c.log.Debug("inbound frame rejected", "error", err)
 			}
 		case err := <-tunErrors:
-			if err != nil {
-				if errors.Is(err, tun.ErrClosed) && c.isClosed() {
-					return ErrClosed
-				}
-				return fmt.Errorf("client: TUN read: %w", err)
+			if err := c.tunRunError(err); err != nil {
+				return err
 			}
 		case now := <-reorderTicker.C:
 			if err := c.deliver(c.reorder.Tick(now)); err != nil {
@@ -316,11 +466,110 @@ func (c *Client) Run(ctx context.Context, dev tun.Device) error {
 			}
 		case now := <-houseTicker.C:
 			c.housekeeping(now)
-			if now.Sub(lastInbound) > sessionTimeout {
+			if now.Sub(lastInbound) > c.cfg.SessionTimeout {
+				c.log.Warn("session timed out", "silent_for", now.Sub(lastInbound).Round(time.Second))
 				return ErrSessionTimeout
 			}
 		}
 	}
+}
+
+// reconnect re-establishes the session over the existing path sockets with
+// exponential backoff. It returns when a matching session is active, the
+// context or client is closed, the relay reports different tunnel parameters,
+// or the TUN device fails.
+func (c *Client) reconnect(ctx context.Context, tunPackets <-chan []byte, tunErrors <-chan error) error {
+	c.connected.Store(false)
+	c.reconnecting.Store(true)
+	c.reconnectAttempt.Store(0)
+	c.refreshStatus(time.Now())
+
+	backoff := reconnectMinBackoff
+	for {
+		attempt := int(c.reconnectAttempt.Add(1))
+		c.refreshStatus(time.Now())
+		info, err := c.connect(ctx, len(c.order), true)
+		if err == nil {
+			c.log.Info("session re-established",
+				"session", info.SessionID,
+				"attempt", attempt,
+				"tunnel_ip", info.Address.String(),
+				"paths", len(c.order),
+			)
+			return nil
+		}
+		if errors.Is(err, context.Canceled) || errors.Is(err, ErrClosed) ||
+			errors.Is(err, ErrSessionChanged) {
+			c.reconnecting.Store(false)
+			c.refreshStatus(time.Now())
+			return err
+		}
+		delay := reconnectDelay(backoff)
+		c.log.Warn("reconnect attempt failed",
+			"attempt", attempt, "retry_in", delay, "error", err)
+		if err := c.waitReconnect(ctx, delay, tunPackets, tunErrors); err != nil {
+			c.reconnecting.Store(false)
+			c.refreshStatus(time.Now())
+			return err
+		}
+		if backoff < reconnectMaxBackoff {
+			backoff *= 2
+			if backoff > reconnectMaxBackoff {
+				backoff = reconnectMaxBackoff
+			}
+		}
+	}
+}
+
+// reconnectDelay applies equal jitter to an exponential backoff so clients
+// behind the same NAT do not all retry in lockstep.
+func reconnectDelay(backoff time.Duration) time.Duration {
+	half := backoff / 2
+	if half <= 0 {
+		return backoff
+	}
+	return half + time.Duration(rand.Int64N(int64(half)+1))
+}
+
+func (c *Client) waitReconnect(ctx context.Context, delay time.Duration, tunPackets <-chan []byte, tunErrors <-chan error) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-c.done:
+			return ErrClosed
+		case <-tunPackets:
+			// Drop TUN traffic while no encrypted session exists.
+		case err := <-tunErrors:
+			if err := c.tunRunError(err); err != nil {
+				return err
+			}
+		case <-timer.C:
+			return nil
+		}
+	}
+}
+
+func drainInbound(ch <-chan inboundPacket) {
+	for {
+		select {
+		case <-ch:
+		default:
+			return
+		}
+	}
+}
+
+func (c *Client) tunRunError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, tun.ErrClosed) && c.isClosed() {
+		return ErrClosed
+	}
+	return fmt.Errorf("client: TUN read: %w", err)
 }
 
 // Close stops the session and all path sockets. It is idempotent.
@@ -351,8 +600,7 @@ func (c *Client) isClosed() bool {
 	}
 }
 
-func (c *Client) handshake(ctx context.Context) (protocol.SessionInfo, crypto.TrafficKeys, *clientPath, error) {
-	attempts := c.cfg.HandshakeAttempts
+func (c *Client) handshake(ctx context.Context, attempts int) (protocol.SessionInfo, crypto.TrafficKeys, *clientPath, error) {
 	if attempts < len(c.order) {
 		attempts = len(c.order)
 	}
@@ -716,20 +964,34 @@ func (c *Client) housekeeping(now time.Time) {
 
 func (c *Client) refreshStatus(now time.Time) {
 	paths := c.scheduler.Snapshots(now)
+	reorder := bond.ReorderStats{}
+	var dataSeq, controlSeq uint64
+	if c.reorder != nil {
+		reorder = c.reorder.Stats()
+	}
+	if c.c2s != nil {
+		dataSeq = c.c2s.DataSeq()
+		controlSeq = c.c2s.ControlSeq()
+	}
 	c.statusMu.Lock()
 	c.status = Status{
-		Connected:  c.connected.Load(),
-		Server:     c.server,
-		Session:    c.info,
-		Paths:      paths,
-		Reorder:    c.reorder.Stats(),
-		DataSeq:    c.c2s.DataSeq(),
-		ControlSeq: c.c2s.ControlSeq(),
+		Connected:        c.connected.Load(),
+		Reconnecting:     c.reconnecting.Load(),
+		ReconnectAttempt: int(c.reconnectAttempt.Load()),
+		Server:           c.server,
+		Session:          c.info,
+		Paths:            paths,
+		Reorder:          reorder,
+		DataSeq:          dataSeq,
+		ControlSeq:       controlSeq,
 	}
 	c.statusMu.Unlock()
 }
 
 func (c *Client) sendBye() {
+	if c.c2s == nil {
+		return
+	}
 	bye, err := protocol.NewJSONControl(protocol.ControlBye, protocol.Bye{Reason: "client shutdown"})
 	if err != nil {
 		return
