@@ -2,10 +2,11 @@
 // device and restores the previous routing and DNS state when the tunnel
 // closes.
 //
-// The client keeps a host route to the relay server on the physical interface
-// so encrypted UDP datagrams never re-enter the tunnel. Default traffic is
-// moved to the TUN device with two /1 routes, which avoids deleting or
-// rewriting the system's existing default route.
+// The client keeps a host route to the relay server on every physical
+// interface that carries a path, so encrypted UDP datagrams never re-enter the
+// tunnel and each pinned socket has a route out of its own adapter. Default
+// traffic is moved to the TUN device with two /1 routes, which avoids deleting
+// or rewriting the system's existing default route.
 package route
 
 import (
@@ -38,11 +39,32 @@ type Config struct {
 	// Server is the resolved IPv4 address of the relay. It is excluded from
 	// the tunnel route so the encrypted transport can reach the internet.
 	Server netip.Addr
+	// PhysicalInterfaces lists the OS names of the adapters carrying client
+	// paths (for example "Wi-Fi" or "eth0"). Each one gets its own host route
+	// to Server, so a socket pinned to that adapter does not depend on another
+	// adapter's route. Empty falls back to the system route to Server.
+	PhysicalInterfaces []string
 	// DNS is the DNS server assigned by the relay. It is ignored unless
 	// ConfigureDNS is true.
 	DNS netip.Addr
 	// ConfigureDNS replaces the system resolver with DNS for the tunnel.
 	ConfigureDNS bool
+}
+
+// relayInterfaces returns the distinct, trimmed physical interface names in
+// configuration order.
+func (c Config) relayInterfaces() []string {
+	seen := make(map[string]bool, len(c.PhysicalInterfaces))
+	out := make([]string, 0, len(c.PhysicalInterfaces))
+	for _, name := range c.PhysicalInterfaces {
+		name = strings.TrimSpace(name)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	return out
 }
 
 func (c Config) validate() error {
@@ -66,6 +88,11 @@ func (c Config) validate() error {
 	}
 	if c.DNS.IsValid() && !c.DNS.Is4() {
 		return fmt.Errorf("route: DNS address must be IPv4, got %q", c.DNS)
+	}
+	for _, name := range c.PhysicalInterfaces {
+		if strings.ContainsAny(name, "'|\r\n\t") {
+			return fmt.Errorf("route: interface name %q contains unsupported characters", name)
+		}
 	}
 	return nil
 }

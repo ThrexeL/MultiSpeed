@@ -32,6 +32,8 @@ func (f *fakePSRunner) Run(ctx context.Context, name string, args ...string) ([]
 		}
 	}
 	switch {
+	case strings.Contains(script, "Get-NetRoute"):
+		return []byte("Wi-Fi|9|192.168.2.1\nEthernet|7|192.168.1.1"), nil
 	case strings.Contains(script, "Get-NetAdapter"):
 		return []byte("42"), nil
 	case strings.Contains(script, "Find-NetRoute"):
@@ -42,6 +44,18 @@ func (f *fakePSRunner) Run(ctx context.Context, name string, args ...string) ([]
 		return nil, nil
 	}
 	return nil, nil
+}
+
+func (f *fakePSRunner) count(substr string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, c := range f.calls {
+		if strings.Contains(c, substr) {
+			n++
+		}
+	}
+	return n
 }
 
 func (f *fakePSRunner) find(substr string) bool {
@@ -167,5 +181,112 @@ func TestWindowsRouteErrorIncludesCommandOutput(t *testing.T) {
 		t.Fatal("expected error")
 	} else if !strings.Contains(err.Error(), "find TUN adapter") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestWindowsApplyPinsRelayRoutePerAdapter(t *testing.T) {
+	f := &fakePSRunner{}
+	cfg := validConfig()
+	cfg.PhysicalInterfaces = []string{"Wi-Fi", "Ethernet"}
+	m, err := apply(context.Background(), cfg, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wants := []string{
+		"New-NetRoute -DestinationPrefix '203.0.113.9/32' -InterfaceIndex 9 -NextHop '192.168.2.1' -RouteMetric 1",
+		"New-NetRoute -DestinationPrefix '203.0.113.9/32' -InterfaceIndex 7 -NextHop '192.168.1.1' -RouteMetric 2",
+	}
+	for _, want := range wants {
+		if !f.find(want) {
+			t.Errorf("missing command containing %q", want)
+		}
+	}
+	// The Find-NetRoute fallback (index 7) must not add a third copy.
+	if got := f.count("New-NetRoute -DestinationPrefix '203.0.113.9/32'"); got != 2 {
+		t.Errorf("added %d relay bypass routes, want 2", got)
+	}
+
+	if err := m.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Remove-NetRoute -DestinationPrefix '203.0.113.9/32' -InterfaceIndex 9",
+		"Remove-NetRoute -DestinationPrefix '203.0.113.9/32' -InterfaceIndex 7",
+	} {
+		if !f.find(want) {
+			t.Errorf("missing rollback command containing %q", want)
+		}
+	}
+}
+
+func TestWindowsPhysicalInterfaceWithoutGatewayFallsBack(t *testing.T) {
+	f := &fakePSRunner{}
+	cfg := validConfig()
+	// The fake only reports routes for Wi-Fi and Ethernet, so "Starlink" has
+	// no default gateway and must be reported instead of guessed.
+	cfg.PhysicalInterfaces = []string{"Starlink", "Wi-Fi"}
+	m, err := apply(context.Background(), cfg, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	warnings := strings.Join(m.Warnings(), "\n")
+	if !strings.Contains(warnings, `"Starlink" has no IPv4 default route`) {
+		t.Errorf("warnings = %q", warnings)
+	}
+	if got := f.count("New-NetRoute -DestinationPrefix '203.0.113.9/32'"); got != 2 {
+		t.Errorf("added %d relay bypass routes, want 2 (Wi-Fi plus fallback)", got)
+	}
+}
+
+func TestWindowsPhysicalInterfaceProbeErrorFallsBack(t *testing.T) {
+	f := &fakePSRunner{fail: func(script string) error {
+		if strings.Contains(script, "Get-NetRoute") {
+			return errors.New("powershell exploded")
+		}
+		return nil
+	}}
+	cfg := validConfig()
+	cfg.PhysicalInterfaces = []string{"Wi-Fi"}
+	m, err := apply(context.Background(), cfg, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if warnings := strings.Join(m.Warnings(), "\n"); !strings.Contains(warnings, "could not inspect per-adapter relay routes") {
+		t.Errorf("warnings = %q", warnings)
+	}
+	if !f.find("New-NetRoute -DestinationPrefix '203.0.113.9/32' -InterfaceIndex 7 -NextHop '192.168.1.1' -RouteMetric 1") {
+		t.Error("system relay route was not used as a fallback")
+	}
+}
+
+func TestParseRelayRoutes(t *testing.T) {
+	routes, missing, err := parseRelayRoutes("Ethernet|7|192.168.0.1\nWi-Fi|9|192.168.1.1\n", []string{"Wi-Fi", "Ethernet"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(missing) != 0 {
+		t.Fatalf("missing = %v", missing)
+	}
+	if len(routes) != 2 || routes[0].Name != "Wi-Fi" || routes[1].Name != "Ethernet" {
+		t.Fatalf("routes = %+v", routes)
+	}
+	if routes[0].Interface != 9 || routes[0].NextHop.String() != "192.168.1.1" {
+		t.Fatalf("first route = %+v", routes[0])
+	}
+
+	_, missing, err = parseRelayRoutes("Wi-Fi|9|192.168.1.1\n", []string{"Wi-Fi", "Ethernet"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(missing) != 1 || missing[0] != "Ethernet" {
+		t.Fatalf("missing = %v", missing)
+	}
+
+	if _, _, err := parseRelayRoutes("Wi-Fi|9|0.0.0.0\n", []string{"Wi-Fi"}); err == nil {
+		t.Fatal("expected an unspecified gateway to be rejected")
+	}
+	if _, _, err := parseRelayRoutes("broken line\n", []string{"Wi-Fi"}); err == nil {
+		t.Fatal("expected malformed output to be rejected")
 	}
 }

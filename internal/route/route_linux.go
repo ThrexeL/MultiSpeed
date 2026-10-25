@@ -24,7 +24,10 @@ type ipRoute struct {
 func apply(ctx context.Context, cfg Config, r Runner) (*Manager, error) {
 	m := newManager()
 
-	route, err := linuxRouteTo(ctx, r, cfg.Server)
+	relayRoutes, warnings, err := linuxRelayRoutes(ctx, r, cfg.Server, cfg.relayInterfaces())
+	for _, warning := range warnings {
+		m.warn("%s", warning)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -46,20 +49,25 @@ func apply(ctx context.Context, cfg Config, r Runner) (*Manager, error) {
 		return ipRun(ctx, r, "addr", "flush", "dev", cfg.TUNName)
 	})
 
-	bypass := []string{"route", "replace", cfg.Server.String() + "/32"}
-	if route.Gateway != "" {
-		bypass = append(bypass, "via", route.Gateway)
+	for i, route := range relayRoutes {
+		metric := i + 1
+		bypass := []string{"route", "replace", cfg.Server.String() + "/32"}
+		if route.Gateway != "" {
+			bypass = append(bypass, "via", route.Gateway)
+		}
+		bypass = append(bypass, "dev", route.Dev)
+		if route.Prefsrc != "" {
+			bypass = append(bypass, "src", route.Prefsrc)
+		}
+		bypass = append(bypass, "metric", fmt.Sprint(metric))
+		if err := ipRun(ctx, r, bypass...); err != nil {
+			return fail(m, fmt.Errorf("route: add relay bypass route via %s: %w", route.Dev, err))
+		}
+		dev, metric := route.Dev, metric
+		m.addUndo(func(ctx context.Context) error {
+			return ipRun(ctx, r, "route", "del", cfg.Server.String()+"/32", "dev", dev, "metric", fmt.Sprint(metric))
+		})
 	}
-	bypass = append(bypass, "dev", route.Dev)
-	if route.Prefsrc != "" {
-		bypass = append(bypass, "src", route.Prefsrc)
-	}
-	if err := ipRun(ctx, r, bypass...); err != nil {
-		return fail(m, fmt.Errorf("route: add relay bypass route: %w", err))
-	}
-	m.addUndo(func(ctx context.Context) error {
-		return ipRun(ctx, r, "route", "del", cfg.Server.String()+"/32")
-	})
 
 	for _, prefix := range []string{"0.0.0.0/1", "128.0.0.0/1"} {
 		if err := ipRun(ctx, r, "route", "replace", prefix, "dev", cfg.TUNName); err != nil {
@@ -97,12 +105,63 @@ func linuxRouteTo(ctx context.Context, r Runner, server netip.Addr) (ipRoute, er
 	if err != nil {
 		return ipRoute{}, fmt.Errorf("route: find relay route: %w", err)
 	}
+	return parseRouteGet(out, server, "")
+}
+
+// linuxRelayRoutes resolves one host route to the relay per physical device.
+// With no devices it falls back to the system route to the relay.
+func linuxRelayRoutes(ctx context.Context, r Runner, server netip.Addr, devices []string) ([]ipRoute, []string, error) {
+	if len(devices) == 0 {
+		route, err := linuxRouteTo(ctx, r, server)
+		if err != nil {
+			return nil, nil, err
+		}
+		return []ipRoute{route}, nil, nil
+	}
+
+	var (
+		routes   []ipRoute
+		warnings []string
+		seen     = make(map[string]bool, len(devices))
+	)
+	for _, dev := range devices {
+		if seen[dev] {
+			continue
+		}
+		seen[dev] = true
+		route, err := linuxRouteOnDevice(ctx, r, server, dev)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("device %q cannot reach the relay, so it cannot carry the tunnel: %v", dev, err))
+			continue
+		}
+		routes = append(routes, route)
+	}
+	if len(routes) == 0 {
+		return nil, warnings, fmt.Errorf("route: no physical device in %v can reach relay %s", devices, server)
+	}
+	return routes, warnings, nil
+}
+
+// linuxRouteOnDevice resolves the route the kernel would use for server when
+// the socket is pinned to dev with SO_BINDTODEVICE.
+func linuxRouteOnDevice(ctx context.Context, r Runner, server netip.Addr, dev string) (ipRoute, error) {
+	out, err := r.Run(ctx, "ip", "-j", "route", "get", server.String(), "oif", dev)
+	if err != nil {
+		return ipRoute{}, err
+	}
+	return parseRouteGet(out, server, dev)
+}
+
+func parseRouteGet(out []byte, server netip.Addr, wantDev string) (ipRoute, error) {
 	var routes []ipRoute
 	if err := json.Unmarshal(out, &routes); err != nil {
 		return ipRoute{}, fmt.Errorf("route: parse relay route: %w", err)
 	}
 	if len(routes) == 0 || routes[0].Dev == "" {
 		return ipRoute{}, fmt.Errorf("route: no usable route to relay %s", server)
+	}
+	if wantDev != "" && routes[0].Dev != wantDev {
+		return ipRoute{}, fmt.Errorf("route: kernel selected %s instead of %s", routes[0].Dev, wantDev)
 	}
 	return routes[0], nil
 }

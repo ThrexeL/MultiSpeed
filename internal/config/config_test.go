@@ -37,6 +37,17 @@ func TestInitRelayRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	raw, err := os.ReadFile(clientPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"paths": []`) {
+		t.Error("generated client profile does not contain an explicit empty paths array")
+	}
+	if !strings.Contains(string(raw), `"delay_ms": 100`) {
+		t.Error("generated client profile does not document the default reorder window")
+	}
+
 	var loadedRelay Relay
 	if err := Load(relayPath, &loadedRelay); err != nil {
 		t.Fatal(err)

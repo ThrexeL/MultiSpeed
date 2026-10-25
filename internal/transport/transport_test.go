@@ -30,6 +30,29 @@ func TestResolveAddrNormalizesIPv4(t *testing.T) {
 	}
 }
 
+func TestInterfaceNames(t *testing.T) {
+	specs := []PathSpec{
+		{Interface: "Wi-Fi", LocalAddr: "192.168.1.10"},
+		{Interface: ""},
+		{Interface: "Ethernet"},
+		{Interface: "Wi-Fi"},
+		{Interface: "  Ethernet  "},
+	}
+	got := InterfaceNames(specs)
+	want := []string{"Wi-Fi", "Ethernet"}
+	if len(got) != len(want) {
+		t.Fatalf("InterfaceNames() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("InterfaceNames() = %v, want %v", got, want)
+		}
+	}
+	if len(InterfaceNames(nil)) != 0 {
+		t.Fatal("InterfaceNames(nil) should be empty")
+	}
+}
+
 func TestNormalizeAddrPort(t *testing.T) {
 	mapped := netip.MustParseAddrPort("[::ffff:127.0.0.1]:1234")
 	got := normalizeAddrPort(mapped)

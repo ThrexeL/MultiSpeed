@@ -42,12 +42,12 @@ can audit, run, and improve.
 - [x] Automatic session reconnect with exponential backoff after relay restarts or total path loss
 - [x] Per-path RTT, jitter, loss, and throughput telemetry
 - [x] Windows and Linux clients with automatic route and DNS setup
-- [x] IPv4 default-route capture, relay bypass route, and best-effort IPv6 leak
-      blocking
+- [x] IPv4 default-route capture, one relay bypass route per physical adapter,
+      and best-effort IPv6 leak blocking
 - [x] Route, DNS, and interface rollback on disconnect or failed setup
 - [x] Linux relay with TUN forwarding, source NAT, and client isolation
 - [x] Per-IP handshake rate limiting, bounded session table, and pending-session timeouts
-- [x] Relay `init`, `check`, `keygen`, and client `check`, `discover`, `keygen`
+- [x] Relay `init`, `check`, `keygen` and client `check`, `discover`, `doctor`, `keygen`
 - [x] Wails desktop control panel
 - [x] Simulated loss, jitter, latency, and path-outage integration tests
 - [x] Unit tests, loopback end-to-end tests, parser fuzzing, Linux race tests
@@ -123,7 +123,9 @@ go build -trimpath -o dist/multispeed-relay-linux-amd64 ./cmd/multispeed-relay
 ```
 
 On Linux, build with `go build -o multispeed ./cmd/multispeed` and likewise for
-the relay.
+the relay. A release bundle names the Windows command-line binary
+`multispeed-cli.exe` so it can sit beside the `MultiSpeed.exe` desktop app on a
+case-insensitive filesystem.
 
 ### 2. Create the relay and client configuration
 
@@ -164,12 +166,20 @@ Remember to allow UDP 7443 through the provider's firewall or security group.
 
 ### 4. Run the client
 
-On Windows, place `wintun.dll` next to `multispeed.exe` (download it from
-<https://www.wintun.net/>; Wintun is GPL-2.0 and is not bundled), then run from
-an elevated PowerShell:
+On Windows, place `wintun.dll` next to the client binaries (download it from
+<https://www.wintun.net/>; Wintun is GPL-2.0 and is not bundled), then check the
+setup from an elevated PowerShell:
 
 ```powershell
-.\dist\multispeed.exe run -config client.json
+.\dist\multispeed-cli.exe doctor -config client.json
+```
+
+`doctor` checks elevation, `wintun.dll`, the profile, and the relay handshake,
+then reports which physical paths completed a probe. It changes no routes. When
+it is green, connect:
+
+```powershell
+.\dist\multispeed-cli.exe run -config client.json
 ```
 
 On Linux:
@@ -179,13 +189,17 @@ sudo ./multispeed run -config client.json
 ```
 
 The client creates the TUN device, moves IPv4 default traffic into the tunnel,
-pins the relay address to the physical link, and restores routes and DNS when
-it exits. Useful flags:
+adds a host route to the relay on every physical adapter in use, and restores
+routes and DNS when it exits. Useful flags:
 
 - `-dry-run` establishes the relay session without creating a TUN device.
 - `-no-routes` leaves routing alone; `-no-dns` leaves DNS alone.
 - `-stats 5s` changes the status interval; `-debug` enables debug logging.
 - `multispeed discover` lists interfaces that can be used as paths.
+- `multispeed doctor -config client.json` is a safe preflight check.
+
+For a step-by-step walkthrough with two real adapters, see
+[docs/launch.md](docs/launch.md).
 
 IPv6 is not tunneled. The client installs IPv6 blackhole routes so traffic
 cannot leak around the tunnel, and DNS is sent to the relay-assigned resolver
@@ -254,10 +268,10 @@ scripts/              Relay network setup and WSL test helpers
 - **Relay bandwidth is the main cost.** MultiSpeed does not provide relays.
   A VPS with a generous traffic allowance and a good uplink is required, and
   the relay's uplink caps the aggregate tunnel speed.
-- **Bonding is not magic.** Many flows can use several paths at once, and a
-  dropped link no longer kills the session. A single TCP flow still follows
-  one path most of the time, so a single-threaded download will not always be
-  several times faster.
+- **Bonding is not magic.** Packets from a single flow are striped across the
+  healthy paths, so even one download can use both links, but the relay's
+  uplink, path asymmetry, and the reorder window bound the result. Many
+  parallel flows show the aggregate best.
 - **Outages are survivable, not invisible.** If every path fails or the relay
   restarts, the client keeps its TUN device and routes, then reconnects with
   exponential backoff. Active flows stall until the relay is reachable again.

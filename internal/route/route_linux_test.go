@@ -23,8 +23,11 @@ func (f *fakeIPRunner) Run(ctx context.Context, name string, args ...string) ([]
 	f.calls = append(f.calls, joined)
 	f.mu.Unlock()
 
-	if name == "ip" && len(args) >= 2 && args[0] == "-j" && args[1] == "route" {
-		return []byte(`[{"dst":"203.0.113.9","gateway":"192.168.1.1","dev":"eth0","prefsrc":"192.168.1.50"}]`), nil
+	if name == "ip" && len(args) >= 3 && args[0] == "-j" && args[1] == "route" && args[2] == "get" {
+		if dev := outputDevice(args); dev != "" {
+			return fakeRouteOn(dev)
+		}
+		return fakeRouteOn("eth0")
 	}
 	if f.fail != nil {
 		if err := f.fail(append([]string{name}, args...)); err != nil {
@@ -32,6 +35,26 @@ func (f *fakeIPRunner) Run(ctx context.Context, name string, args ...string) ([]
 		}
 	}
 	return nil, nil
+}
+
+// outputDevice returns the "oif" device argument, if present.
+func outputDevice(args []string) string {
+	for i, a := range args {
+		if a == "oif" && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
+}
+
+func fakeRouteOn(dev string) ([]byte, error) {
+	switch dev {
+	case "eth0":
+		return []byte(`[{"dst":"203.0.113.9","gateway":"192.168.0.1","dev":"eth0","prefsrc":"192.168.0.50"}]`), nil
+	case "wlan0":
+		return []byte(`[{"dst":"203.0.113.9","gateway":"192.168.1.1","dev":"wlan0","prefsrc":"192.168.1.50"}]`), nil
+	}
+	return nil, errors.New("Network is unreachable")
 }
 
 func (f *fakeIPRunner) find(substr string) bool {
@@ -58,7 +81,7 @@ func TestLinuxApplyAndClose(t *testing.T) {
 		"ip link set dev ms0 up",
 		"ip link set dev ms0 mtu 1400",
 		"ip addr replace 10.77.0.2/16 dev ms0",
-		"ip route replace 203.0.113.9/32 via 192.168.1.1 dev eth0 src 192.168.1.50",
+		"ip route replace 203.0.113.9/32 via 192.168.0.1 dev eth0 src 192.168.0.50 metric 1",
 		"ip route replace 0.0.0.0/1 dev ms0",
 		"ip route replace 128.0.0.0/1 dev ms0",
 		"ip -6 route replace blackhole ::/1",
@@ -78,7 +101,7 @@ func TestLinuxApplyAndClose(t *testing.T) {
 		"ip -6 route del blackhole ::/1",
 		"ip route del 128.0.0.0/1 dev ms0",
 		"ip route del 0.0.0.0/1 dev ms0",
-		"ip route del 203.0.113.9/32",
+		"ip route del 203.0.113.9/32 dev eth0 metric 1",
 		"ip addr flush dev ms0",
 	}
 	for _, want := range undoWants {
@@ -110,7 +133,7 @@ func TestLinuxApplyRollsBackOnFailure(t *testing.T) {
 	}
 	rollback := []string{
 		"ip route del 0.0.0.0/1 dev ms0",
-		"ip route del 203.0.113.9/32",
+		"ip route del 203.0.113.9/32 dev eth0 metric 1",
 		"ip addr flush dev ms0",
 	}
 	for _, want := range rollback {
@@ -161,4 +184,71 @@ type onLinkRunner struct{}
 
 func (onLinkRunner) Run(context.Context, string, ...string) ([]byte, error) {
 	return []byte(`[{"dst":"203.0.113.9","dev":"wlan0"}]`), nil
+}
+
+func TestLinuxApplyPinsRelayRoutePerDevice(t *testing.T) {
+	f := &fakeIPRunner{}
+	cfg := validConfig()
+	cfg.ConfigureDNS = false
+	cfg.PhysicalInterfaces = []string{"eth0", "wlan0"}
+	m, err := apply(context.Background(), cfg, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wants := []string{
+		"ip route replace 203.0.113.9/32 via 192.168.0.1 dev eth0 src 192.168.0.50 metric 1",
+		"ip route replace 203.0.113.9/32 via 192.168.1.1 dev wlan0 src 192.168.1.50 metric 2",
+	}
+	for _, want := range wants {
+		if !f.find(want) {
+			t.Errorf("missing command %q", want)
+		}
+	}
+	if !f.find("ip -j route get 203.0.113.9 oif eth0") || !f.find("ip -j route get 203.0.113.9 oif wlan0") {
+		t.Error("relay route was not resolved per device")
+	}
+
+	if err := m.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"ip route del 203.0.113.9/32 dev eth0 metric 1",
+		"ip route del 203.0.113.9/32 dev wlan0 metric 2",
+	} {
+		if !f.find(want) {
+			t.Errorf("missing rollback command %q", want)
+		}
+	}
+}
+
+func TestLinuxUnreachableDeviceIsWarnedAndSkipped(t *testing.T) {
+	f := &fakeIPRunner{}
+	cfg := validConfig()
+	cfg.ConfigureDNS = false
+	cfg.PhysicalInterfaces = []string{"usb0", "wlan0"}
+	m, err := apply(context.Background(), cfg, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	warnings := strings.Join(m.Warnings(), "\n")
+	if !strings.Contains(warnings, `"usb0" cannot reach the relay`) {
+		t.Errorf("warnings = %q", warnings)
+	}
+	if f.find("dev usb0") {
+		t.Error("installed a route on an unreachable device")
+	}
+	if !f.find("ip route replace 203.0.113.9/32 via 192.168.1.1 dev wlan0 src 192.168.1.50 metric 1") {
+		t.Error("reachable device did not get the relay route")
+	}
+}
+
+func TestLinuxNoReachableDeviceFails(t *testing.T) {
+	f := &fakeIPRunner{}
+	cfg := validConfig()
+	cfg.ConfigureDNS = false
+	cfg.PhysicalInterfaces = []string{"usb0"}
+	if _, err := apply(context.Background(), cfg, f); err == nil {
+		t.Fatal("expected apply to fail")
+	}
 }

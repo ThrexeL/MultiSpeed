@@ -316,13 +316,14 @@ func (a *App) Connect() error {
 	session.dev = dev
 
 	manager, err := route.Configure(ctx, route.Config{
-		TUNName:      dev.Name(),
-		Address:      info.Address,
-		PrefixLen:    info.PrefixLen,
-		MTU:          int(info.MTU),
-		Server:       pc.Server().Addr(),
-		DNS:          info.DNS,
-		ConfigureDNS: info.DNS.IsValid(),
+		TUNName:            dev.Name(),
+		Address:            info.Address,
+		PrefixLen:          info.PrefixLen,
+		MTU:                int(info.MTU),
+		Server:             pc.Server().Addr(),
+		PhysicalInterfaces: pc.PhysicalInterfaces(),
+		DNS:                info.DNS,
+		ConfigureDNS:       info.DNS.IsValid(),
 	})
 	if err != nil {
 		_ = dev.Close()
@@ -353,6 +354,7 @@ func (a *App) Connect() error {
 		"tunnel_ip", info.Address.String(),
 		"mtu", info.MTU,
 		"paths", len(pc.Status().Paths),
+		"adapters", strings.Join(pc.PhysicalInterfaces(), ", "),
 	)
 	go a.runSession(session)
 	return nil

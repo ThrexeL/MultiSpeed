@@ -193,9 +193,11 @@ Then run normally:
 sudo multispeed run -config client.json
 ```
 
-On Windows, put `wintun.dll` next to `multispeed.exe` and use an elevated
-PowerShell. The client automatically installs routes and DNS and restores them
-when it exits.
+On Windows, put `wintun.dll` next to the client binaries and use an elevated
+PowerShell. `multispeed-cli.exe doctor -config client.json` verifies the setup
+without changing routes. The client automatically installs routes and DNS and
+restores them when it exits. See [launch.md](launch.md) for a two-adapter
+walkthrough.
 
 ## 8. Upgrades and removal
 

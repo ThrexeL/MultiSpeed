@@ -234,6 +234,24 @@ func (l *Listener) LocalAddr() netip.AddrPort {
 // Close closes the listener.
 func (l *Listener) Close() error { return l.conn.Close() }
 
+// InterfaceNames returns the distinct, non-empty OS interface names referenced
+// by specs, in first-seen order. These are the adapters that need their own
+// host route to the relay so a pinned socket does not depend on another
+// adapter's route.
+func InterfaceNames(specs []PathSpec) []string {
+	seen := make(map[string]bool, len(specs))
+	out := make([]string, 0, len(specs))
+	for _, spec := range specs {
+		name := strings.TrimSpace(spec.Interface)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	return out
+}
+
 // Discover returns one path spec per usable IPv4 interface. Virtual adapters
 // used by MultiSpeed and common container/VPN tools are skipped.
 func Discover() ([]PathSpec, error) {
@@ -306,6 +324,25 @@ func DefaultWeight(kind protocol.LinkKind) int {
 	}
 }
 
+// InterfaceIPv4 returns the first IPv4 address assigned to the named
+// interface. It resolves the same address OpenPath would bind.
+func InterfaceIPv4(name string) (netip.Addr, error) {
+	ifi, err := net.InterfaceByName(name)
+	if err != nil {
+		return netip.Addr{}, fmt.Errorf("transport: interface %q: %w", name, err)
+	}
+	ip, err := firstIPv4(ifi)
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	addr, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return netip.Addr{}, fmt.Errorf("transport: interface %q has no usable IPv4 address", name)
+	}
+	return addr.Unmap(), nil
+}
+
+// firstIPv4 returns the first IPv4 address assigned to iface.
 func firstIPv4(iface *net.Interface) (net.IP, error) {
 	addrs, err := iface.Addrs()
 	if err != nil {
@@ -334,6 +371,7 @@ func skipInterface(name string) bool {
 	prefixes := []string{
 		"multispeed", "ms0", "wintun", "tun", "tap", "tailscale", "zt",
 		"docker", "veth", "br-", "virbr", "vmnet", "utun", "wg",
+		"speedify", "cloudflare", "warp",
 	}
 	for _, p := range prefixes {
 		if strings.HasPrefix(n, p) {

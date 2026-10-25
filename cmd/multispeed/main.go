@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -35,6 +36,8 @@ func main() {
 		err = check(args)
 	case "discover":
 		err = discover(args)
+	case "doctor":
+		err = doctor(args)
 	case "keygen":
 		err = keygen(args)
 	case "help", "-h", "--help":
@@ -54,15 +57,21 @@ func usage() {
 
 Usage:
   multispeed run      -config client.json [-tun ms0] [-dry-run] [-no-routes] [-no-dns] [-stats 5s] [-debug]
+  multispeed doctor   -config client.json [-wait 3s]
   multispeed check    -config client.json
   multispeed discover
   multispeed keygen   [-name laptop]
   multispeed help
 
 run opens the TUN device, moves the system's IPv4 default route into the
-tunnel, and adds a bypass route for the relay server. On exit it restores the
-previous routing and DNS state. Use -no-routes to manage routes yourself, and
--dry-run to test relay reachability without creating a TUN device.
+tunnel, and adds a bypass route for the relay server on every physical
+adapter. On exit it restores the previous routing and DNS state. Use
+-no-routes to manage routes yourself, and -dry-run to test relay reachability
+without creating a TUN device.
+
+doctor checks the local prerequisites, authenticates to the relay over every
+configured path, and reports which paths carry traffic. It changes no host
+routing or DNS state, so it is safe to run before connecting.
 `)
 }
 
@@ -108,6 +117,9 @@ func run(args []string) error {
 	info := c.Info()
 	fmt.Printf("connected: server=%s tunnel_ip=%s/%d mtu=%d paths=%d\n",
 		c.Server().String(), info.Address.String(), info.PrefixLen, info.MTU, len(c.Status().Paths))
+	if names := c.PhysicalInterfaces(); len(names) > 0 {
+		fmt.Printf("physical adapters: %s\n", strings.Join(names, ", "))
+	}
 
 	var dev tun.Device
 	if *dryRun {
@@ -124,13 +136,14 @@ func run(args []string) error {
 
 	if !*dryRun && !*noRoutes {
 		manager, err := route.Configure(ctx, route.Config{
-			TUNName:      dev.Name(),
-			Address:      info.Address,
-			PrefixLen:    info.PrefixLen,
-			MTU:          int(info.MTU),
-			Server:       c.Server().Addr(),
-			DNS:          info.DNS,
-			ConfigureDNS: !*noDNS,
+			TUNName:            dev.Name(),
+			Address:            info.Address,
+			PrefixLen:          info.PrefixLen,
+			MTU:                int(info.MTU),
+			Server:             c.Server().Addr(),
+			PhysicalInterfaces: c.PhysicalInterfaces(),
+			DNS:                info.DNS,
+			ConfigureDNS:       !*noDNS,
 		})
 		if err != nil {
 			return fmt.Errorf("configure system routes: %w", err)
@@ -147,8 +160,8 @@ func run(args []string) error {
 		if info.DNS.IsValid() && !*noDNS {
 			dnsState = "DNS " + info.DNS.String()
 		}
-		fmt.Printf("routes: IPv4 default via %s, relay %s pinned to the physical link (%s)\n",
-			dev.Name(), c.Server().Addr(), dnsState)
+		fmt.Printf("routes: IPv4 default via %s, relay %s pinned on %s (%s)\n",
+			dev.Name(), c.Server().Addr(), bypassTargets(c.PhysicalInterfaces()), dnsState)
 	}
 
 	if *statsInterval > 0 {
@@ -163,6 +176,14 @@ func run(args []string) error {
 	}
 	fmt.Println("disconnected")
 	return nil
+}
+
+// bypassTargets describes where the relay host route is pinned.
+func bypassTargets(interfaces []string) string {
+	if len(interfaces) == 0 {
+		return "the system route to the relay"
+	}
+	return "every physical adapter (" + strings.Join(interfaces, ", ") + ")"
 }
 
 func statusLoop(ctx context.Context, interval time.Duration, c *client.Client) {

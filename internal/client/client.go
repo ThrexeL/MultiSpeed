@@ -92,6 +92,9 @@ type Client struct {
 	log    *slog.Logger
 	server netip.AddrPort
 
+	// specs records the paths this client opened. It is immutable after Dial.
+	specs []transport.PathSpec
+
 	paths map[protocol.PathID]*clientPath
 	order []*clientPath
 
@@ -185,6 +188,7 @@ func Dial(ctx context.Context, cfg Config) (*Client, error) {
 		cfg:       cfg,
 		log:       cfg.Logger.With("component", "client"),
 		server:    server,
+		specs:     append([]transport.PathSpec(nil), specs...),
 		paths:     make(map[protocol.PathID]*clientPath),
 		scheduler: bond.NewScheduler(),
 		done:      make(chan struct{}),
@@ -353,6 +357,13 @@ func (c *Client) Info() protocol.SessionInfo {
 
 // Server returns the resolved relay address.
 func (c *Client) Server() netip.AddrPort { return c.server }
+
+// PhysicalInterfaces returns the distinct OS names of the adapters carrying
+// this session's paths. Route setup pins one host route to the relay on each of
+// them. Paths opened without an interface name are omitted.
+func (c *Client) PhysicalInterfaces() []string {
+	return transport.InterfaceNames(c.specs)
+}
 
 // Status returns the latest cached status. It is safe to call concurrently.
 func (c *Client) Status() Status {

@@ -36,6 +36,8 @@ func TestConfigValidate(t *testing.T) {
 		{"missing server", func(c *Config) { c.Server = netip.Addr{} }},
 		{"ipv6 server", func(c *Config) { c.Server = netip.MustParseAddr("2001:db8::1") }},
 		{"ipv6 dns", func(c *Config) { c.DNS = netip.MustParseAddr("2606:4700:4700::1111") }},
+		{"quote in interface", func(c *Config) { c.PhysicalInterfaces = []string{"Wi'Fi"} }},
+		{"newline in interface", func(c *Config) { c.PhysicalInterfaces = []string{"Wi-Fi\n"} }},
 	}
 	cfg := validConfig()
 	if err := cfg.validate(); err != nil {
@@ -49,6 +51,20 @@ func TestConfigValidate(t *testing.T) {
 				t.Fatal("accepted invalid config")
 			}
 		})
+	}
+}
+
+func TestRelayInterfacesTrimmedAndDeduped(t *testing.T) {
+	cfg := Config{PhysicalInterfaces: []string{" Wi-Fi ", "Ethernet", "Wi-Fi", "", "  "}}
+	got := cfg.relayInterfaces()
+	want := []string{"Wi-Fi", "Ethernet"}
+	if len(got) != len(want) {
+		t.Fatalf("relayInterfaces() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("relayInterfaces() = %v, want %v", got, want)
+		}
 	}
 }
 

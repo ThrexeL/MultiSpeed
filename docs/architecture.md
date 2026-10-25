@@ -206,9 +206,11 @@ scheduling, keeps probing, and drops or queues packets according to policy.
   desktop app ships with a `requireAdministrator` manifest.
 - Each path socket binds a source IPv4 address and pins outbound datagrams to
   its interface with `IP_UNICAST_IF`.
-- Before the tunnel routes are installed, `Find-NetRoute` locates the physical
-  interface and next hop used to reach the relay. A `/32` bypass route keeps
-  encrypted UDP on that link.
+- Before the tunnel routes are installed, each physical path adapter is asked
+  for its own IPv4 default gateway, and a `/32` bypass route to the relay is
+  added on every adapter (with a distinct route metric). A pinned socket
+  therefore never depends on another adapter's route. The system's own route to
+  the relay is kept as a fallback when an adapter has no gateway.
 - Two `/1` routes (`0.0.0.0/1` and `128.0.0.0/1`) capture IPv4 default traffic
   without deleting the existing default route. The TUN interface metric is set
   to 1. IPv6 is sent to the TUN adapter with `::/1` and `8000::/1` blackhole
@@ -224,8 +226,10 @@ scheduling, keeps probing, and drops or queues packets according to policy.
 - TUN via `/dev/net/tun`, using the WireGuard `tun` library's Linux backend.
 - Each path socket binds its interface's IPv4 address and uses
   `SO_BINDTODEVICE` so encrypted datagrams bypass the tunnel route.
-- The current route to the relay is discovered with `ip -j route get` before
-  tunnel routes are installed. A `/32` bypass route preserves it.
+- The route to the relay is resolved per device with
+  `ip -j route get <relay> oif <dev>` before tunnel routes are installed, and a
+  `/32` bypass route is added for every path device with its own metric. The
+  system route is used when no device list is supplied.
 - Two `/1` routes capture IPv4 default traffic. IPv6 is blackholed with `::/1`
   and `8000::/1` routes when the kernel supports it.
 - DNS prefers per-link `resolvectl` configuration. If `systemd-resolved` is not

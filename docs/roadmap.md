@@ -56,8 +56,9 @@ configured deadline, automatic recovery after a path outage. **Met.**
 - [x] Relay: TUN device, client address assignment, NAT setup helper
 - [x] Relay: systemd unit, config validation, key generation command
 - [x] Windows: Wintun adapter, address and route configuration, DNS
-- [x] Windows: physical-path socket binding and relay bypass route
+- [x] Windows: physical-path socket binding and one relay bypass route per adapter
 - [x] Windows: clean shutdown and route rollback
+- [x] Client preflight (`doctor`) and a two-adapter launch guide
 - [x] Linux client: TUN, `SO_BINDTODEVICE`, routes, DNS, rollback
 - [x] Client CLI: connect and live status; disconnect with Ctrl+C/SIGTERM
 - [x] Automatic reconnect after relay restart or total path loss, with backoff
@@ -112,13 +113,12 @@ limitations.
 
 ## Near-term implementation order
 
-1. Throughput/CPU benchmarks on the impairment harness
-2. Public VPS deployment plus real Wi-Fi/Ethernet/cellular validation
-3. Kill switch and crash-safe route recovery
-4. Relay hardening review and abuse-resistance testing
-5. GUI polish: tray, service split, installers
-6. Android `VpnService` client
-7. IPv6, redundancy mode, and an external audit
+1. Public VPS deployment plus real Wi-Fi/Ethernet/cellular validation
+2. Kill switch and crash-safe route recovery
+3. Relay hardening review and abuse-resistance testing
+4. GUI polish: tray, service split, installers
+5. Android `VpnService` client
+6. IPv6, redundancy mode, and an external audit
 
 ## How to help
 

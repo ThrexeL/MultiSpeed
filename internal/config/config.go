@@ -323,6 +323,14 @@ func InitRelay(relayKeys, clientKeys Keys, listen, server, clientName, clientAdd
 		Server:         server,
 		RelayPublicKey: relayKeys.PublicKey,
 		PrivateKey:     clientKeys.PrivateKey,
+		// An explicit empty array documents that auto-discovery is intended and
+		// is easier to replace with explicit paths than null.
+		Paths: []Path{},
+		Reorder: Reorder{
+			DelayMS:    100,
+			MaxPackets: 4096,
+			MaxBytes:   8388608,
+		},
 	}
 	if _, err := relayCfg.Runtime(); err != nil {
 		return Relay{}, Client{}, err
