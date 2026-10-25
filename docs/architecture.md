@@ -180,7 +180,7 @@ Each path maintains:
 | --- | --- | --- |
 | SRTT | Smoothed round-trip time | Pong for a path probe |
 | RTT variance | Jitter estimate | RFC 6298-style EWMA |
-| Loss | Missed sequence numbers | Receiver statistics |
+| Loss | Smoothed probe loss | PING/PONG outcomes |
 | Rx throughput | Delivered bits per second | Receiver statistics |
 | Last seen | Liveness | Any valid frame |
 | Weight | Relative capacity | Config or auto-tuning |

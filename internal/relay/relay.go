@@ -115,9 +115,8 @@ type relayPath struct {
 	pingToken   uint64
 	pingSentAt  time.Time
 	lastStatsAt time.Time
-	winResolved uint64
-	winPongs    uint64
 	winBytes    uint64
+	probeLoss   bond.ProbeLoss
 }
 
 type rawPacket struct {
@@ -574,8 +573,7 @@ func (r *Relay) handleControl(s *session, cp *relayPath, ctrl protocol.Control, 
 		if !cp.pingSentAt.IsZero() && token == cp.pingToken {
 			cp.stats.ObservePong(now, now.Sub(cp.pingSentAt))
 			cp.pingSentAt = time.Time{}
-			cp.winResolved++
-			cp.winPongs++
+			cp.probeLoss.Observe(true)
 		}
 	case protocol.ControlKeepalive:
 		observePath()
@@ -675,10 +673,7 @@ func (r *Relay) housekeeping(now time.Time) {
 				continue
 			}
 			snap := cp.stats.Snapshot(now)
-			loss := snap.Loss
-			if cp.winResolved > 0 {
-				loss = float64(cp.winResolved-cp.winPongs) / float64(cp.winResolved)
-			}
+			loss := cp.probeLoss.Value()
 			bps := uint64(0)
 			if secs := elapsed.Seconds(); secs > 0 {
 				bps = uint64(float64(cp.winBytes*8) / secs)
@@ -694,8 +689,6 @@ func (r *Relay) housekeeping(now time.Time) {
 			if err == nil {
 				_ = r.sendControl(s, cp, stats)
 			}
-			cp.winResolved = 0
-			cp.winPongs = 0
 			cp.winBytes = 0
 			cp.lastStatsAt = now
 		}
@@ -706,7 +699,7 @@ func (r *Relay) housekeeping(now time.Time) {
 func (r *Relay) sendPing(s *session, cp *relayPath, now time.Time) {
 	// A probe still outstanding when a new one is sent counts as lost.
 	if !cp.pingSentAt.IsZero() {
-		cp.winResolved++
+		cp.probeLoss.Observe(false)
 	}
 	token := uint64(now.UnixNano()) ^ uint64(cp.id)<<56
 	ping, err := protocol.NewTokenControl(protocol.ControlPing, token)

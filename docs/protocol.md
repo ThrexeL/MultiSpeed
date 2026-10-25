@@ -232,8 +232,9 @@ the reverse direction.
 ```
 
 All values are observations for the path identified by the frame's `path_id`.
-`loss` is in the range 0–1. `rx_bps` is delivered throughput in bits per
-second. Implementations clamp out-of-range values.
+`loss` is in the range 0–1 and is a smoothed estimate derived from probe
+outcomes, not an exact interval ratio. `rx_bps` is delivered throughput in bits
+per second. Implementations clamp out-of-range values.
 
 ### 5.3 `PING` / `PONG`
 
@@ -256,8 +257,8 @@ period to absorb reordering, then discards it.
 ## 6. Path lifecycle
 
 1. The client enumerates physical interfaces and opens one UDP socket per path.
-2. It performs the handshake on path 0. If path 0 is unavailable, it retries on
-   another path with a fresh handshake.
+2. It performs the handshake, starting on path 0. If a path fails, it retries
+   on the next path with a fresh handshake.
 3. After session establishment, it sends `PATH_HELLO` on every path. Each hello
    teaches the relay the path's source endpoint.
 4. Both sides send `PING` every 2 seconds and `KEEPALIVE` every 10 seconds on
@@ -265,9 +266,9 @@ period to absorb reordering, then discards it.
 5. The relay may send downstream data on a path only after it has received at
    least one valid frame from that path, preventing NAT holes from being
    sprayed with unwanted traffic.
-6. A path becomes unhealthy after 6 seconds without a valid frame, or when loss
-   exceeds 50%. It becomes healthy again after three consecutive successful
-   probes.
+6. A path becomes unhealthy after 6 seconds without a valid frame, or when the
+   smoothed loss estimate exceeds 50%. It becomes usable again once a valid
+   frame arrives and loss falls back to that threshold or below.
 7. Path IDs are assigned by the client, are stable for the session, and are in
    the range 0–255.
 8. The session ends on `BYE`, after 30 seconds of inactivity on all paths, or
@@ -286,7 +287,7 @@ The protocol does not mandate a specific scheduler, but implementations MUST:
 
 v1 reference scheduler: smooth weighted round-robin over healthy paths. Weight
 defaults: Ethernet 100, Wi-Fi 60, Starlink 40, cellular 30, satellite 20,
-unknown 50. Observed loss above 10% reduces the effective weight linearly;
+unknown 50. The smoothed loss estimate reduces the effective weight linearly;
 paths above 50% loss are excluded. The reference implementation reports
 telemetry but does not yet auto-tune weights from measured throughput.
 

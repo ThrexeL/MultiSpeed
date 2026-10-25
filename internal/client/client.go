@@ -109,10 +109,9 @@ type clientPath struct {
 	helloSentAt time.Time
 	lastSentAt  time.Time
 
-	winPingsResolved uint64
-	winPingsReplied  uint64
-	winBytes         uint64
-	lastStatsAt      time.Time
+	winBytes    uint64
+	lastStatsAt time.Time
+	probeLoss   bond.ProbeLoss
 }
 
 type inboundPacket struct {
@@ -571,8 +570,7 @@ func (c *Client) handleControl(cp *clientPath, ctrl protocol.Control, now time.T
 		}
 		cp.stats.ObservePong(now, now.Sub(cp.pingSentAt))
 		cp.pingSentAt = time.Time{}
-		cp.winPingsResolved++
-		cp.winPingsReplied++
+		cp.probeLoss.Observe(true)
 	case protocol.ControlKeepalive:
 		return nil
 	case protocol.ControlBye:
@@ -677,7 +675,7 @@ func (c *Client) housekeeping(now time.Time) {
 		if cp.pingSentAt.IsZero() || now.Sub(cp.pingSentAt) >= probeInterval {
 			// An outstanding probe that is being superseded counts as lost.
 			if !cp.pingSentAt.IsZero() {
-				cp.winPingsResolved++
+				cp.probeLoss.Observe(false)
 			}
 			token := uint64(now.UnixNano()) ^ uint64(cp.tr.ID)<<56
 			ping, err := protocol.NewTokenControl(protocol.ControlPing, token)
@@ -694,10 +692,7 @@ func (c *Client) housekeeping(now time.Time) {
 			continue
 		}
 		snap := cp.stats.Snapshot(now)
-		loss := snap.Loss
-		if cp.winPingsResolved > 0 {
-			loss = float64(cp.winPingsResolved-cp.winPingsReplied) / float64(cp.winPingsResolved)
-		}
+		loss := cp.probeLoss.Value()
 		bps := uint64(0)
 		if secs := elapsed.Seconds(); secs > 0 {
 			bps = uint64(float64(cp.winBytes*8) / secs)
@@ -713,8 +708,6 @@ func (c *Client) housekeeping(now time.Time) {
 		if err == nil {
 			_ = c.sendControl(cp, statsCtrl, now)
 		}
-		cp.winPingsResolved = 0
-		cp.winPingsReplied = 0
 		cp.winBytes = 0
 		cp.lastStatsAt = now
 	}
