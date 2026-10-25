@@ -61,7 +61,7 @@ can audit, run, and improve.
 - [ ] Tray icon, start on login, and an unprivileged GUI with a privileged helper
 - [ ] Installers and signed release packages
 - [ ] IPv6 inside the tunnel
-- [ ] Throughput and CPU benchmarks
+- [x] Throughput and CPU benchmarks over the impairment harness
 - [ ] Independent security audit
 
 ## Why another bonding tool?
@@ -218,6 +218,16 @@ wsl -d Ubuntu -- bash scripts/wsl-test.sh -race
 WSL needs more than its default 1 GB of memory for the race suite; raise
 `memory=` in `%USERPROFILE%\.wslconfig` and run `wsl --shutdown` if the VM is
 OOM-killed.
+
+Throughput benchmarks send fixed-size packets through a real client and relay
+over loopback, with and without simulated latency and jitter:
+
+```powershell
+go test -run '^$' -bench BenchmarkBondedThroughput -benchtime 2s ./internal/e2e/
+```
+
+Results are reported in MB/s plus allocations per packet. Add `-cpuprofile
+cpu.out` to inspect CPU use with `go tool pprof`.
 
 ## Repository layout
 

@@ -43,7 +43,7 @@ func receive(t *testing.T, ch <-chan []byte, timeout time.Duration) []byte {
 	}
 }
 
-func waitRun(t *testing.T, ch <-chan error, name string) {
+func waitRun(t testing.TB, ch <-chan error, name string) {
 	t.Helper()
 	select {
 	case err := <-ch:

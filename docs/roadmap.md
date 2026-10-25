@@ -37,7 +37,7 @@ a real TUN device.
 - [x] Simulated path proxy with configurable latency, jitter, loss, and outage
 - [x] Integration test: 3 paths, 20% loss, 120 ms skew, one path dies
 - [x] Metrics and structured logs
-- [ ] Benchmarks: throughput and CPU per 1 Gbps of synthetic traffic
+- [x] Benchmarks: end-to-end throughput, bytes/op, and allocations/op
 
 **Current state:** the end-to-end test moves packets through a real relay and
 client over three loopback UDP paths through an impairment proxy. It drops 20%

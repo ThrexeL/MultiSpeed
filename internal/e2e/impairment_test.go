@@ -67,7 +67,7 @@ func assertIncreasing(t *testing.T, seqs []int) {
 	}
 }
 
-func waitForPathLiveness(t *testing.T, c *client.Client, want int, timeout time.Duration) {
+func waitForPathLiveness(t testing.TB, c *client.Client, want int, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for {
