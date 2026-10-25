@@ -26,7 +26,7 @@ yet.
 **Exit criteria:** `go test ./...` passes on Windows and Linux; protocol
 document matches code; no known panics on malformed input. **Met.**
 
-## Phase 1 — Bonding engine over simulated paths (in progress)
+## Phase 1 — Bonding engine over simulated paths (complete)
 
 **Goal:** prove that packets can be striped, reordered, and failed over without
 a real TUN device.
@@ -34,18 +34,20 @@ a real TUN device.
 - [x] Session state machine (handshake, path hello, probes, stats)
 - [x] Multi-socket UDP transport
 - [x] Relay session table and packet forwarding to a loopback sink
-- [ ] Simulated path proxy with configurable latency, jitter, loss, and outage
-- [ ] Integration test: 3 paths, 20% loss, 120 ms skew, one path dies
+- [x] Simulated path proxy with configurable latency, jitter, loss, and outage
+- [x] Integration test: 3 paths, 20% loss, 120 ms skew, one path dies
 - [x] Metrics and structured logs
 - [ ] Benchmarks: throughput and CPU per 1 Gbps of synthetic traffic
 
 **Current state:** the end-to-end test moves packets through a real relay and
-client over two loopback UDP paths with in-memory TUN devices. It does not yet
-impair latency, jitter, loss, or a path outage.
+client over three loopback UDP paths through an impairment proxy. It drops 20%
+of datagrams on one path, adds 120 ms to another, verifies ordered delivery
+within a 50 ms reorder window, then takes a path down and checks that traffic
+continues on the survivors without touching the dead path.
 
 **Exit criteria:** a test harness moves a stream of packets through a local
 relay across three simulated paths; no duplicates, no reordering above the
-configured deadline, automatic recovery after a path outage. **Not met.**
+configured deadline, automatic recovery after a path outage. **Met.**
 
 ## Phase 2 — Linux relay and Windows client (usable VPN, validation pending)
 
@@ -109,7 +111,7 @@ limitations.
 
 ## Near-term implementation order
 
-1. Simulated path impairments and a path-outage integration test
+1. Throughput/CPU benchmarks on the impairment harness
 2. Public VPS deployment plus real Wi-Fi/Ethernet/cellular validation
 3. Automatic reconnect, kill switch, and crash-safe route recovery
 4. Relay hardening review and abuse-resistance testing

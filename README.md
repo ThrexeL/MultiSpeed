@@ -48,6 +48,7 @@ can audit, run, and improve.
 - [x] Per-IP handshake rate limiting, bounded session table, and pending-session timeouts
 - [x] Relay `init`, `check`, `keygen`, and client `check`, `discover`, `keygen`
 - [x] Wails desktop control panel
+- [x] Simulated loss, jitter, latency, and path-outage integration tests
 - [x] Unit tests, loopback end-to-end tests, parser fuzzing, Linux race tests
 
 **Not implemented yet**
@@ -60,7 +61,7 @@ can audit, run, and improve.
 - [ ] Tray icon, start on login, and an unprivileged GUI with a privileged helper
 - [ ] Installers and signed release packages
 - [ ] IPv6 inside the tunnel
-- [ ] Simulated loss/jitter/outage test harness and throughput benchmarks
+- [ ] Throughput and CPU benchmarks
 - [ ] Independent security audit
 
 ## Why another bonding tool?
@@ -230,6 +231,7 @@ internal/relay/       Relay sessions, allowlist, forwarding
 internal/transport/   UDP paths, interface binding, discovery
 internal/tun/         Wintun/Linux TUN adapters and test null device
 internal/route/       Windows/Linux route, DNS, and rollback
+internal/netsim/      UDP impairment proxy for integration tests
 internal/e2e/         Loopback relay/client integration tests
 gui/                  Wails desktop app (separate Go module)
 deploy/               systemd unit for the relay
