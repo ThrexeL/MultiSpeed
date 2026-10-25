@@ -251,8 +251,9 @@ on any valid authenticated frame.
 
 ### 5.5 `BYE`
 
-Sent before a clean shutdown. The peer may keep the session for a short grace
-period to absorb reordering, then discards it.
+Sent before a clean shutdown by either peer. The recipient discards the session
+immediately. A client that is not itself shutting down treats it as a lost
+session and starts reconnecting.
 
 ## 6. Path lifecycle
 
@@ -273,6 +274,26 @@ period to absorb reordering, then discards it.
    the range 0–255.
 8. The session ends on `BYE`, after 30 seconds of inactivity on all paths, or
    when either side discards it. Keys and replay state are erased.
+
+### 6.1 Reconnection
+
+A client that loses its session keeps its path sockets, TUN device, and host
+routes, then starts a fresh Noise handshake over the same paths.
+
+- Each reconnect round tries every path once. The first round runs immediately;
+  later rounds use an exponentially increasing base delay from 1 s to 30 s,
+  with jitter, until the context is cancelled or the device fails.
+- A successful handshake creates a new session ID, keys, sequence numbers,
+  replay windows, scheduler state, and reorder buffer. Path IDs stay stable.
+- The client re-announces every path with `PATH_HELLO`. The relay treats the
+  handshake as pending and promotes it on the first authenticated frame,
+  replacing any older session for that client key or tunnel address.
+- TUN packets that arrive while no encrypted session exists are dropped.
+- The tunnel address, prefix length, MTU, and DNS server must match the original
+  session. A change stops the client with `ErrSessionChanged` so routes and DNS
+  are not left stale.
+- Reconnection uses the originally resolved relay address. Re-binding sockets
+  after an interface address change and re-resolving DNS are future work.
 
 ## 7. Scheduling and reordering (normative behavior)
 

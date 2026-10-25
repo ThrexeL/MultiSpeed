@@ -5,8 +5,8 @@ tests, and documentation updates. Dates are deliberately omitted: this is a
 volunteer open-source project, and the roadmap will change.
 
 Status at a glance: the protocol, bonding core, Linux relay, Windows/Linux
-clients, and a Wails desktop app exist and pass loopback tests. Real multi-ISP
-testing, Android, kill switch, automatic reconnect, and an audit do not exist
+clients, automatic reconnect, and a Wails desktop app exist and pass loopback
+tests. Real multi-ISP testing, Android, kill switch, and an audit do not exist
 yet.
 
 ## Phase 0 — Foundation (complete)
@@ -60,6 +60,7 @@ configured deadline, automatic recovery after a path outage. **Met.**
 - [x] Windows: clean shutdown and route rollback
 - [x] Linux client: TUN, `SO_BINDTODEVICE`, routes, DNS, rollback
 - [x] Client CLI: connect and live status; disconnect with Ctrl+C/SIGTERM
+- [x] Automatic reconnect after relay restart or total path loss, with backoff
 - [x] WSL2 test script for Linux-specific tests and the race detector
 - [x] Relay hardening: client isolation, handshake rate limits, session cap, timeouts
 - [ ] Relay hardening review and abuse-resistance testing
@@ -113,7 +114,7 @@ limitations.
 
 1. Throughput/CPU benchmarks on the impairment harness
 2. Public VPS deployment plus real Wi-Fi/Ethernet/cellular validation
-3. Automatic reconnect, kill switch, and crash-safe route recovery
+3. Kill switch and crash-safe route recovery
 4. Relay hardening review and abuse-resistance testing
 5. GUI polish: tray, service split, installers
 6. Android `VpnService` client

@@ -16,8 +16,8 @@ can audit, run, and improve.
 > The Windows and Linux clients and the Linux relay work over loopback and
 > WSL2, but real multi-ISP deployments have not been validated. The protocol
 > and configuration formats are still changing, the cryptography is
-> unaudited, and there is no installer, public relay network, kill switch, or
-> automatic reconnect. IPv6 is not carried inside the tunnel. Do not use
+> unaudited, and there is no installer, public relay network, or kill switch.
+> IPv6 is not carried inside the tunnel. Do not use
 > MultiSpeed to protect sensitive traffic or as a replacement for a mature VPN
 > today.
 
@@ -39,6 +39,7 @@ can audit, run, and improve.
 - [x] Multiple simultaneous paths with replay protection
 - [x] Smooth weighted round-robin scheduling with loss penalties
 - [x] Bounded reordering and duplicate suppression
+- [x] Automatic session reconnect with exponential backoff after relay restarts or total path loss
 - [x] Per-path RTT, jitter, loss, and throughput telemetry
 - [x] Windows and Linux clients with automatic route and DNS setup
 - [x] IPv4 default-route capture, relay bypass route, and best-effort IPv6 leak
@@ -55,7 +56,6 @@ can audit, run, and improve.
 
 - [ ] Android `VpnService` client
 - [ ] Kill switch and crash-safe route recovery
-- [ ] Automatic reconnect after the last path fails or the relay restarts
 - [ ] Redundancy mode for calls and gaming
 - [ ] Split tunneling
 - [ ] Tray icon, start on login, and an unprivileged GUI with a privileged helper
@@ -248,6 +248,9 @@ scripts/              Relay network setup and WSL test helpers
   dropped link no longer kills the session. A single TCP flow still follows
   one path most of the time, so a single-threaded download will not always be
   several times faster.
+- **Outages are survivable, not invisible.** If every path fails or the relay
+  restarts, the client keeps its TUN device and routes, then reconnects with
+  exponential backoff. Active flows stall until the relay is reachable again.
 - **Reordering has a cost.** The default 100 ms playout window trades latency
   for tolerance of slow paths. Interactive traffic may prefer a smaller window
   or, eventually, redundancy mode.

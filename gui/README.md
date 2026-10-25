@@ -2,7 +2,8 @@
 
 The MultiSpeed desktop app is a Wails v2 control panel for the Go client. It
 loads a `client.json` profile, brings up the TUN device, configures host routes
-and DNS, and shows live per-path telemetry.
+and DNS, shows live per-path telemetry, and reports when the client is
+reconnecting after a relay restart or path outage.
 
 > **Pre-alpha.** The app requests administrator/root privileges because it
 > creates a TUN device and changes system routes. It is not hardened yet.
@@ -59,6 +60,5 @@ The profile's private key never leaves the Go process or the config file.
   implemented; the whole app runs elevated.
 - IPv6 is not tunneled. The client installs IPv6 leak-protection routes, but
   IPv4 is the only supported address family inside the tunnel.
-- There is no kill switch, auto-reconnect, system tray integration, or
-  split tunneling yet.
+- There is no kill switch, system tray integration, or split tunneling yet.
 - The app does not install or upgrade `wintun.dll` for you.

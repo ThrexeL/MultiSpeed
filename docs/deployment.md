@@ -206,6 +206,10 @@ sudo install -m 0755 multispeed-relay /usr/local/bin/multispeed-relay
 sudo systemctl restart multispeed-relay
 ```
 
+Clients keep their TUN device and routes during the restart and reconnect
+automatically. Active TCP flows stall briefly; applications recover when the
+relay returns.
+
 To uninstall:
 
 ```bash

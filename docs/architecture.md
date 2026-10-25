@@ -81,9 +81,9 @@ A long-running process with four responsibilities:
    one UDP socket per path, and pin each socket to its interface so tunnel
    traffic does not loop back into the TUN adapter.
 2. **Session management.** Perform the Noise handshake, establish traffic keys,
-   send path metadata, and probe paths. Path-level failover is automatic;
-   re-establishing a session after the last path fails or the relay restarts is
-   not implemented yet.
+   send path metadata, and probe paths. Path-level failover is automatic, and
+   a lost session is re-established over the same sockets with exponential
+   backoff while the TUN device and host routes stay in place.
 3. **Packet processing.** Read IP packets from TUN, assign sequence numbers,
    encrypt, schedule, and transmit. In the return direction: decrypt, verify,
    reorder, and write to TUN.
@@ -108,8 +108,9 @@ A Linux daemon that:
 7. Maintains per-client, per-path telemetry and schedules return traffic.
 
 The relay is intentionally stateless across restarts apart from configuration:
-clients must re-establish their sessions after a relay restart. Automatic
-reconnect is planned.
+clients re-establish their sessions automatically after a relay restart. On a
+graceful shutdown the relay sends `BYE` so clients reconnect immediately
+instead of waiting for the inactivity timeout.
 
 ### 3.3 Desktop control plane
 
@@ -275,8 +276,9 @@ scheduling, keeps probing, and drops or queues packets according to policy.
 | Failure | Behavior |
 | --- | --- |
 | One path stops passing traffic | Probes mark it unhealthy; the scheduler stops using it; the session continues |
-| All paths fail | The scheduler reports no healthy path and packets are dropped while probes continue. After 30 s without an authenticated frame the client exits with `ErrSessionTimeout`; automatic reconnect is planned |
-| Relay restarts | The existing session times out. Clients must be restarted until automatic re-handshake is implemented |
+| All paths fail | The scheduler reports no healthy path and TUN packets are dropped while probes continue. After 30 s without an authenticated frame the client reconnects over the same paths with exponential backoff (1 s to 30 s); routes and the TUN device stay in place |
+| Relay restarts | A graceful stop sends `BYE`; an abrupt stop is detected by the inactivity timeout. The client reconnects with a fresh handshake and session ID |
+| Relay returns different tunnel parameters | The client stops with `ErrSessionChanged` and rolls host routes back rather than running with stale configuration |
 | Client restarts | New session; old relay state expires |
 | Client crashes while connected | Routes may remain until the OS or user removes them; crash-safe recovery is planned |
 | Packet loss | Inner TCP recovers; the bonding layer does not retransmit by default |
