@@ -70,9 +70,13 @@ type ReorderStats struct {
 
 // ReorderBuffer restores sequence order across multiple paths. It is not safe
 // for concurrent use; the session owns it from one goroutine.
+//
+// A new session's first data frame has sequence 1 on both sides, so the buffer
+// starts there. If it instead adopted the first arriving sequence, a frame on a
+// fast path could arrive before an earlier frame still in flight on a slow
+// path, and that earlier frame would be discarded as late.
 type ReorderBuffer struct {
 	cfg      ReorderConfig
-	started  bool
 	expected uint64
 	pending  map[uint64]*Packet
 	heap     seqHeap
@@ -93,8 +97,9 @@ func NewReorderBuffer(cfg ReorderConfig) (*ReorderBuffer, error) {
 		return nil, errors.New("bond: reorder limits must be positive")
 	}
 	return &ReorderBuffer{
-		cfg:     cfg,
-		pending: make(map[uint64]*Packet),
+		cfg:      cfg,
+		expected: 1,
+		pending:  make(map[uint64]*Packet),
 	}, nil
 }
 
@@ -108,10 +113,6 @@ func (r *ReorderBuffer) Push(p *Packet, now time.Time) []*Packet {
 	}
 	if p.Arrived.IsZero() {
 		p.Arrived = now
-	}
-	if !r.started {
-		r.started = true
-		r.expected = p.Seq
 	}
 	if p.Seq < r.expected {
 		r.stats.Late++

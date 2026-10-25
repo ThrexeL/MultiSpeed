@@ -124,6 +124,19 @@ func TestReorderByteLimit(t *testing.T) {
 	}
 }
 
+func TestReorderStartsAtFirstSessionSequence(t *testing.T) {
+	r := newTestReorder(t, ReorderConfig{})
+	now := time.Now()
+	// Sequence 3 arrives on a fast path before 1 and 2 on slower paths. Those
+	// older sequences are not late; the buffer must wait for them.
+	assertSeqs(t, r.Push(pkt(3, now), now))
+	assertSeqs(t, r.Push(pkt(1, now), now), 1)
+	assertSeqs(t, r.Push(pkt(2, now), now), 2, 3)
+	if s := r.Stats(); s.Delivered != 3 || s.Late != 0 {
+		t.Fatalf("stats = %+v", s)
+	}
+}
+
 func TestReorderInvalid(t *testing.T) {
 	r := newTestReorder(t, ReorderConfig{MaxBytes: 2})
 	now := time.Now()

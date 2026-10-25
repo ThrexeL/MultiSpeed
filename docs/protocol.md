@@ -316,7 +316,8 @@ v1 reference reorder buffer:
 
 - default delay: 100 ms;
 - maximum 4096 packets and 8 MiB;
-- first packet initializes the expected sequence;
+- data sequence numbers start at 1 for each session, and the buffer waits for
+  sequence 1 (up to the deadline) instead of adopting the first arriving frame;
 - gaps are flushed after the delay or when the buffer is full;
 - late packets are dropped and counted.
 
